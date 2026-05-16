@@ -32,6 +32,9 @@ Build with MPLAB X IDE and the XC32 compiler.
 Each version is a single self-contained source file
 (`writer32mxuart.c` or `writer32mxcdc.c`).
 
+The Dockerfile at https://github.com/paijp/mplabx can be used to build
+in a containerized environment.
+
 ## Operation
 
 Data sent to the writer (via CDC or UART) is forwarded to the target at
