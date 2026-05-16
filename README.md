@@ -20,11 +20,11 @@ Both the writer and the target use PIC32MX270F256B.
 
 ### Pin connections
 
-| Writer pin | Target pin | Signal |
-|---|---|---|
-| RB2 | RB10 (PGED2) | ICSP data |
-| RA0 | RB11 (PGEC2) | ICSP clock |
-| RB1 | MCLR | Reset control |
+| Writer pin | Target pin | ICSP | Debug serial 115200 8N1 |
+|---|---|---|---|
+| RB2 | RB10 (PGED2 / UTX2) | ICSP data | <- target TX |
+| RA0 | RB11 (PGEC2 / URX2) | ICSP clock | -> target RX |
+| RB1 | MCLR | Reset control | |
 
 ## Build
 
