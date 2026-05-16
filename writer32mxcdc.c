@@ -794,7 +794,7 @@ static void idletask(void)
 	if ((writing))
 		return;
 
-	/* UART1 RX (unused in CDC mode) */
+	/* UART1 RX */
 	if ((U1STAbits.OERR))
 		U1STA = 0x1400;
 	while ((U1STAbits.URXDA)) {
