@@ -748,36 +748,29 @@ static void idletask(void)
 	/* USB CDC polling */
 	cdc_poll();
 
-	/* Flush p2ubuf via CDC: copy up to EP2_SIZE bytes into a static
-	 * buffer, then pass that to cdc_send(). */
+	/* Flush p2ubuf via CDC.
+	 * Query available IN buffer space first (cdc_send with len=0),
+	 * then copy exactly that many bytes from the ring buffer and send. */
 	if (p2uwpos != p2urpos) {
 		static uint8_t txchunk[EP2_SIZE];
-		W avail;
-		uint16_t sent;
-		W i;
+		uint16_t space = cdc_send(txchunk, 0);	/* query available space */
+		if (space > 0) {
+			W avail;
+			W i;
 
-		if (p2uwpos > p2urpos)
-			avail = p2uwpos - p2urpos;
-		else
-			avail = BUFFERSIZE - p2urpos;
-		if (avail > EP2_SIZE)
-			avail = EP2_SIZE;
+			if (p2uwpos > p2urpos)
+				avail = p2uwpos - p2urpos;
+			else
+				avail = BUFFERSIZE - p2urpos;
+			if (avail > (W)space)
+				avail = (W)space;
 
-		for (i = 0; i < avail; i++) {
-			txchunk[i] = p2ubuf[p2urpos++];
-			if (p2urpos >= BUFFERSIZE)
-				p2urpos = 0;
-		}
-		sent = cdc_send(txchunk, (uint16_t)avail);
-		if (sent < (uint16_t)avail) {
-			/*
-			 * cdc_send could not accept all bytes (IN buffer busy).
-			 * Roll back p2urpos so the unsent bytes are retried.
-			 */
-			W unsent = (W)(avail - sent);
-			p2urpos -= unsent;
-			if (p2urpos < 0)
-				p2urpos += BUFFERSIZE;
+			for (i = 0; i < avail; i++) {
+				txchunk[i] = p2ubuf[p2urpos++];
+				if (p2urpos >= BUFFERSIZE)
+					p2urpos = 0;
+			}
+			cdc_send(txchunk, (uint16_t)avail);
 		}
 	}
 
