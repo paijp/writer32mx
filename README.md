@@ -22,8 +22,8 @@ Both the writer and the target use PIC32MX270F256B.
 
 | Writer pin | Target pin | ICSP | Debug serial 115200 8N1 |
 |---|---|---|---|
-| RB2 | RB10 (PGED2 / UTX2) | ICSP data | <- target TX |
-| RA0 | RB11 (PGEC2 / URX2) | ICSP clock | -> target RX |
+| RB2 | RB10 (PGED2 / UTX2) | ICSP data | target TX -> writer |
+| RA0 | RB11 (PGEC2 / URX2) | ICSP clock | writer -> target RX |
 | RB1 | MCLR | Reset control | |
 
 ## Build
@@ -89,6 +89,15 @@ When programming is complete the target resets and starts the new program.
 Uses the 2-wire Enhanced ICSP defined in DS60001145
 (PIC32 Flash Programming Specification), 4-phase clock mode,
 serial execution without a Programming Executive (PE).
+
+## Related projects
+
+- [sergev/pic32prog](https://github.com/sergev/pic32prog) (GPL v2) --
+  A full-featured PIC32 programmer. Referenced for ICSP protocol details
+  (MTAP command register width, serial execution sequence).
+- [paijp/pic32mx-usb-minimal](https://github.com/paijp/pic32mx-usb-minimal)
+  (Apache 2.0) -- Minimal USB CDC driver for PIC32MX270F256B. The USB CDC
+  implementation in `writer32mxcdc.c` is taken from this repository.
 
 ## License
 
