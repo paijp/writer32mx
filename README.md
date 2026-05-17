@@ -90,6 +90,13 @@ Uses the 2-wire Enhanced ICSP defined in DS60001145
 (PIC32 Flash Programming Specification), 4-phase clock mode,
 serial execution without a Programming Executive (PE).
 
+## Authors
+
+Developed by paijp in collaboration with Anthropic's Claude Sonnet 4.6.
+The requirements, hardware bring-up, and final design decisions were made
+by paijp; Claude drafted and iterated on the source code based on that
+feedback. All testing was performed on real hardware.
+
 ## Related projects
 
 - [sergev/pic32prog](https://github.com/sergev/pic32prog) (GPL v2) --
