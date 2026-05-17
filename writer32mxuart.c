@@ -1,5 +1,6 @@
 /*
  * writer32mx - PIC32MX270F256B ICSP flash programmer
+ * https://github.com/paijp/writer32mx
  *
  * Developed by paijp in collaboration with Anthropic's Claude Sonnet 4.6.
  *
