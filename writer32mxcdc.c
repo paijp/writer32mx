@@ -1328,7 +1328,7 @@ static void rsproc()
 	else if ((c >= 'a') && (c <= 'f'))
 		c = c - 'a' + 0xa;
 	else {
-		linewpos = -1;
+		linewpos = -7;
 		p2cdata(c);
 		return;
 	}
@@ -1345,6 +1345,7 @@ static void rsproc()
 		wait1ms();
 		LAT_MCLR0 = 1;
 		p2ustr("run\r\n");
+		linewpos = -1;
 		return;
 	}
 	if (linewpos < 4) {
