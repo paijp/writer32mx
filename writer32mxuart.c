@@ -61,6 +61,10 @@ static UB p2ubuf[BUFFERSIZE];
 static W p2uwpos = 0;
 static W p2urpos = 0;
 
+static UB u2pbuf[BUFFERSIZE];
+static W u2pwpos = 0;
+static W u2prpos = 0;
+
 static W recverror = 0x8000;
 
 #define BLOCKSIZE 0x400
@@ -121,6 +125,13 @@ static void p2udata(UB c)
 		p2uwpos = 0;
 }
 
+static void u2pdata(UB c)
+{
+	u2pbuf[u2pwpos++] = c;
+	if (u2pwpos >= BUFFERSIZE)
+		u2pwpos = 0;
+}
+
 static void p2ustr(const UB *s)
 {
 	UB c;
@@ -141,129 +152,6 @@ static void p2uub(UB v)
 	static const UB hex[] = "0123456789abcdef";
 	p2udata(hex[(v >> 4) & 0xf]);
 	p2udata(hex[v & 0xf]);
-}
-
-
-/* ============================================================ */
-/* Intel HEX parser                                             */
-/* ============================================================ */
-
-static void recvrs(UW c)
-{
-	static W linewpos = -1;
-	static W upper = -1;
-	static UB linebuf[4];
-	static UB linesum = 0;
-	static UW addrh = 0;
-	static UW addr = 0;
-	UW l;
-	W i;
-
-	if (c == ':') {
-		linewpos = 0;
-		upper = -1;
-		linesum = 0;
-		return;
-	}
-	if (linewpos < 0) {
-		if ((((-linewpos) & 2) == 0) && (c == 0xd)) {
-			linewpos -= 2;
-			return;
-		}
-		if ((((-linewpos) & 4) == 0) && (c == 0xa)) {
-			linewpos -= 4;
-			return;
-		}
-		linewpos = -7;
-		p2cdata(c);
-		return;
-	}
-	if ((c >= '0') && (c <= '9'))
-		c -= '0';
-	else if ((c >= 'A') && (c <= 'F'))
-		c = c - 'A' + 0xa;
-	else if ((c >= 'a') && (c <= 'f'))
-		c = c - 'a' + 0xa;
-	else {
-		linewpos = -1;
-		p2cdata(c);
-		return;
-	}
-	if (upper < 0) {
-		upper = c << 4;
-		return;
-	}
-	c |= upper;
-	upper = -1;
-	linesum += c;
-	if (linewpos < 4) {
-		linebuf[linewpos++] = c;
-		return;
-	}
-	switch (linebuf[3]) {
-	default:
-		linewpos = -1;
-		return;
-	case 0:
-		break;
-	case 1:
-		for (i = 0; i < writebufwsize; i++) {
-			wp = writebuf + i;
-			while (wp->size < BLOCKSIZE)
-				wp->d[wp->size++] = 0xff;
-		}
-		writebufrsize = writebufwsize;
-		writebufwsize = 0;
-		wp = NULL;
-		linewpos = -1;
-		return;
-	case 4: /* address-high */
-		if (linewpos == 4) {
-			addrh = c << 24;
-			linewpos++;
-		} else if (linewpos == 5) {
-			addrh |= (c << 16);
-			linewpos++;
-		} else
-			linewpos = -1;
-		writebufrsize = 0;
-		return;
-	}
-	if (linewpos == 4)
-		addr = addrh | (((UW)linebuf[1]) << 8) | linebuf[2];
-	if (linewpos >= linebuf[0] + 4) {
-		if ((linesum))
-			recverror |= 4;
-		linewpos = -1;
-		return;
-	}
-
-	l = addr & ADDRHMASK;
-	if ((wp == NULL) || (wp->addr != l)) {
-		wp = NULL;
-		for (i = 0; i < writebufwsize; i++)
-			if (writebuf[i].addr == l) {
-				wp = writebuf + i;
-				break;
-			}
-		if (wp == NULL) {
-			if (writebufwsize >= WRITEBUFSIZE - 1) {
-				recverror |= 0x100;
-				linewpos = -1;
-				return;
-			}
-			wp = writebuf + writebufwsize++;
-			wp->addr = l;
-			wp->size = 0;
-		}
-	}
-
-	i = addr - wp->addr;
-	while (wp->size < i)
-		wp->d[wp->size++] = 0xff;
-	wp->d[wp->size++] = c;
-	linewpos++;
-	addr++;
 }
 
 
@@ -289,7 +177,7 @@ static void idletask(void)
 		W c;
 
 		c = U2RXREG;
-		recvrs(c);
+		u2pdata(c);
 	}
 
 	if ((writing))
@@ -896,6 +784,144 @@ static W icsp_enter_serial_exec(void)
 
 
 /* ============================================================ */
+/* Intel HEX parser                                             */
+/* ============================================================ */
+
+static void rsproc()
+{
+	static W linewpos = -1;
+	static W upper = -1;
+	static UB linebuf[4];
+	static UB linesum = 0;
+	static UW addrh = 0;
+	static UW addr = 0;
+	UW c, l;
+	W i;
+	
+	if (u2pwpos == u2prpos)
+		return;
+	c = u2pbuf[u2prpos++];
+	if (u2prpos >= BUFFERSIZE)
+		u2prpos = 0;
+	
+	if (c == ':') {
+		linewpos = 0;
+		upper = -1;
+		linesum = 0;
+		return;
+	}
+	if (linewpos < 0) {
+		if ((((-linewpos) & 2) == 0) && (c == 0xd)) {
+			linewpos -= 2;
+			return;
+		}
+		if ((((-linewpos) & 4) == 0) && (c == 0xa)) {
+			linewpos -= 4;
+			return;
+		}
+		linewpos = -7;
+		p2cdata(c);
+		return;
+	}
+	if ((c >= '0') && (c <= '9'))
+		c -= '0';
+	else if ((c >= 'A') && (c <= 'F'))
+		c = c - 'A' + 0xa;
+	else if ((c >= 'a') && (c <= 'f'))
+		c = c - 'a' + 0xa;
+	else {
+		linewpos = -7;
+		p2cdata(c);
+		return;
+	}
+	if (upper < 0) {
+		upper = c << 4;
+		return;
+	}
+	c |= upper;
+	upper = -1;
+	linesum += c;
+	if ((linewpos == 0)&&(c == 0xff)) {
+		p2ustr("mclr\r\n");
+		LAT_MCLR0 = 0;
+		wait1ms();
+		LAT_MCLR0 = 1;
+		p2ustr("run\r\n");
+		linewpos = -1;
+		return;
+	}
+	if (linewpos < 4) {
+		linebuf[linewpos++] = c;
+		return;
+	}
+	switch (linebuf[3]) {
+	default:
+		linewpos = -1;
+		return;
+	case 0:
+		break;
+	case 1:
+		for (i = 0; i < writebufwsize; i++) {
+			wp = writebuf + i;
+			while (wp->size < BLOCKSIZE)
+				wp->d[wp->size++] = 0xff;
+		}
+		writebufrsize = writebufwsize;
+		writebufwsize = 0;
+		wp = NULL;
+		linewpos = -1;
+		return;
+	case 4: /* address-high */
+		if (linewpos == 4) {
+			addrh = c << 24;
+			linewpos++;
+		} else if (linewpos == 5) {
+			addrh |= (c << 16);
+			linewpos++;
+		} else
+			linewpos = -1;
+		writebufrsize = 0;
+		return;
+	}
+	if (linewpos == 4)
+		addr = addrh | (((UW)linebuf[1]) << 8) | linebuf[2];
+	if (linewpos >= linebuf[0] + 4) {
+		if ((linesum))
+			recverror |= 4;
+		linewpos = -1;
+		return;
+	}
+
+	l = addr & ADDRHMASK;
+	if ((wp == NULL) || (wp->addr != l)) {
+		wp = NULL;
+		for (i = 0; i < writebufwsize; i++)
+			if (writebuf[i].addr == l) {
+				wp = writebuf + i;
+				break;
+			}
+		if (wp == NULL) {
+			if (writebufwsize >= WRITEBUFSIZE - 1) {
+				recverror |= 0x100;
+				linewpos = -1;
+				return;
+			}
+			wp = writebuf + writebufwsize++;
+			wp->addr = l;
+			wp->size = 0;
+		}
+	}
+
+	i = addr - wp->addr;
+	while (wp->size < i)
+		wp->d[wp->size++] = 0xff;
+	wp->d[wp->size++] = c;
+	linewpos++;
+	addr++;
+}
+
+
+/* ============================================================ */
 /* Main                                                         */
 /* ============================================================ */
 
@@ -955,10 +981,7 @@ void main(void)
 		TRIS_PGD0 = 1; /* in */
 
 		LAT_MCLR0 = 0;
-
-		for (i = 0; i < 15000; i++)
-			idletask();
-
+		wait1ms();
 		LAT_MCLR0 = 1;
 
 		writing = 0;
@@ -985,8 +1008,10 @@ void main(void)
 		writebuf[writebufrsize].size = BLOCKSIZE;
 		writebufrsize++;
 #else
-		while (writebufrsize <= 0)
+		while (writebufrsize <= 0) {
 			idletask();
+			rsproc();
+		}
 #endif
 
 		p2ustr("writing\r\n");
