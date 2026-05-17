@@ -1,3 +1,10 @@
+/*
+ * writer32mx - PIC32MX270F256B ICSP flash programmer
+ *
+ * Developed by paijp in collaboration with Anthropic's Claude Sonnet 4.6.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <xc.h>
 
 typedef signed char B;
