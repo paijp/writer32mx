@@ -534,6 +534,10 @@ static UB p2ubuf[BUFFERSIZE];
 static W p2uwpos = 0;
 static W p2urpos = 0;
 
+static UB u2pbuf[BUFFERSIZE];
+static W u2pwpos = 0;
+static W u2prpos = 0;
+
 static W recverror = 0x8000;
 
 #define BLOCKSIZE 0x400
@@ -592,6 +596,13 @@ static void p2udata(UB c)
 	p2ubuf[p2uwpos++] = c;
 	if (p2uwpos >= BUFFERSIZE)
 		p2uwpos = 0;
+}
+
+static void u2pdata(UB c)
+{
+	u2pbuf[u2pwpos++] = c;
+	if (u2pwpos >= BUFFERSIZE)
+		u2pwpos = 0;
 }
 
 static void p2ustr(const UB *s)
