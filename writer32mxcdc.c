@@ -548,11 +548,12 @@ static struct writebuf_struct {
 	UW addr;
 	W size;
 } writebuf[WRITEBUFSIZE];
-static W writebufrsize = 0;
 static W writebufwsize = 0;
-static struct writebuf_struct *wp = NULL;
 
 static W writing = 0;
+
+static struct writebuf_struct *get_wp(UW addr);
+static void writeflash(W final);
 
 
 /* ============================================================ */
@@ -1283,7 +1284,7 @@ static W icsp_enter_serial_exec(void)
 /* Intel HEX parser                                             */
 /* ============================================================ */
 
-static void rsproc()
+static void rsproc(void)
 {
 	static W linewpos = -1;
 	static W upper = -1;
@@ -1291,9 +1292,10 @@ static void rsproc()
 	static UB linesum = 0;
 	static UW addrh = 0;
 	static UW addr = 0;
-	UW c, l;
-	W i;
-	
+	UW c;
+	struct writebuf_struct *wp;
+	W off;
+
 	if (p2cwpos != p2crpos)
 		return;
 	if (u2pwpos == u2prpos)
@@ -1301,7 +1303,7 @@ static void rsproc()
 	c = u2pbuf[u2prpos++];
 	if (u2prpos >= BUFFERSIZE)
 		u2prpos = 0;
-	
+
 	if (c == ':') {
 		linewpos = 0;
 		upper = -1;
@@ -1318,7 +1320,8 @@ static void rsproc()
 			return;
 		}
 		linewpos = -7;
-		p2cdata(c);
+		if (!writing)
+			p2cdata(c);
 		return;
 	}
 	if ((c >= '0') && (c <= '9'))
@@ -1329,7 +1332,8 @@ static void rsproc()
 		c = c - 'a' + 0xa;
 	else {
 		linewpos = -7;
-		p2cdata(c);
+		if (!writing)
+			p2cdata(c);
 		return;
 	}
 	if (upper < 0) {
@@ -1339,12 +1343,20 @@ static void rsproc()
 	c |= upper;
 	upper = -1;
 	linesum += c;
-	if ((linewpos == 0)&&(c == 0xff)) {
-		p2ustr("mclr\r\n");
-		LAT_MCLR0 = 0;
-		wait1ms();
-		LAT_MCLR0 = 1;
-		p2ustr("run\r\n");
+	if ((linewpos == 0) && (c == 0xff)) {
+		/*
+		 * Custom ":FF" reset trigger.
+		 * Only honored when not in the middle of a programming
+		 * session - aborting an ICSP session by toggling MCLR would
+		 * leave the chip in an undefined state.
+		 */
+		if (!writing) {
+			p2ustr("mclr\r\n");
+			LAT_MCLR0 = 0;
+			wait1ms();
+			LAT_MCLR0 = 1;
+			p2ustr("run\r\n");
+		}
 		linewpos = -1;
 		return;
 	}
@@ -1359,14 +1371,7 @@ static void rsproc()
 	case 0:
 		break;
 	case 1:
-		for (i = 0; i < writebufwsize; i++) {
-			wp = writebuf + i;
-			while (wp->size < BLOCKSIZE)
-				wp->d[wp->size++] = 0xff;
-		}
-		writebufrsize = writebufwsize;
-		writebufwsize = 0;
-		wp = NULL;
+		writeflash(1);
 		linewpos = -1;
 		return;
 	case 4: /* address-high */
@@ -1378,7 +1383,6 @@ static void rsproc()
 			linewpos++;
 		} else
 			linewpos = -1;
-		writebufrsize = 0;
 		return;
 	}
 	if (linewpos == 4)
@@ -1390,32 +1394,313 @@ static void rsproc()
 		return;
 	}
 
-	l = addr & ADDRHMASK;
-	if ((wp == NULL) || (wp->addr != l)) {
-		wp = NULL;
-		for (i = 0; i < writebufwsize; i++)
-			if (writebuf[i].addr == l) {
-				wp = writebuf + i;
-				break;
-			}
-		if (wp == NULL) {
-			if (writebufwsize >= WRITEBUFSIZE - 1) {
-				recverror |= 0x100;
-				linewpos = -1;
-				return;
-			}
-			wp = writebuf + writebufwsize++;
-			wp->addr = l;
-			wp->size = 0;
-		}
-	}
-
-	i = addr - wp->addr;
-	while (wp->size < i)
+	wp = get_wp(addr);
+	off = addr - wp->addr;
+	while (wp->size < off)
 		wp->d[wp->size++] = 0xff;
 	wp->d[wp->size++] = c;
 	linewpos++;
 	addr++;
+}
+
+
+/* ============================================================ */
+/* Flash write                                                  */
+/* ============================================================ */
+
+/*
+ * Return a writebuf slot for the block containing addr.  If no slot
+ * holds that block and writebuf is full, perform a flush
+ * (writeflash(0)) to evict everything except the boot-flash slot,
+ * then allocate a fresh slot.  The flush also performs the one-time
+ * ICSP enter / erase / PE upload on its first invocation.
+ */
+static struct writebuf_struct *get_wp(UW addr)
+{
+	UW l = addr & ADDRHMASK;
+	struct writebuf_struct *p;
+	W i;
+
+	for (i = 0; i < writebufwsize; i++)
+		if (writebuf[i].addr == l)
+			return writebuf + i;
+
+	if (writebufwsize >= WRITEBUFSIZE)
+		writeflash(0);
+
+	p = writebuf + writebufwsize++;
+	p->addr = l;
+	p->size = 0;
+	return p;
+}
+
+/*
+ * Flush writebuf to flash.
+ *
+ *   final == 0: mid-stream flush.  Enter ICSP+erase+PE on first call,
+ *               write every non-bootflash slot, drop them from the
+ *               array, keep the ICSP session open for more data.
+ *   final == 1: end-of-file flush.  Same setup if needed, write
+ *               non-bootflash, then bootflash (with debugger-enable
+ *               set), send the FASTDATA trailer, exit ICSP, restore
+ *               UART pins for passthrough.
+ *
+ * Re-writing a page that was already written by an earlier flush is
+ * safe because the flash bit cells can only transition 1->0 without
+ * an erase: bytes filled with 0xff leave previously-programmed bits
+ * untouched.  A new slot post-flush starts with size=0, so the
+ * rsproc pad-loop fills any leading gap with 0xff and the per-block
+ * tail pad below extends it to BLOCKSIZE.
+ */
+static void writeflash(W final)
+{
+	static const UW pe[] = {
+	    /* a0000800: init */
+	    0x0c00021d, /* jal nvmunlock */
+	    0x24044000, /* li a0, 0x4000 nop */
+	    0x0c00021d, /* jal nvmunlock */
+	    0x24044000, /* li a0, 0x4000 nop */
+
+	    /* a0000810: main */
+	    0x3c12a000, /* lui s2, 0xa000 */
+	    0x3c0aa000, /* lui t2, 0xa000 */
+	    0x354a0078, /* ori t2, t2, 0x0078 */
+	    0x8e710000, /* lw s1, 0(s3) */
+
+	    /* a0000820 */
+	    0x8e690000, /* lw t1, 0(s3) */
+	    0xae490000, /* sw t1, 0(s2) */
+	    0x26520004, /* addiu s2, s2, 4 */
+	    0x164afffc, /* bne s2, t2, -4 */
+	    0, /* nop */
+
+	    0x0c00022c, /* jal waitwr */
+
+	    /* a0000838 */
+	    0x8e690000, /* lw t1, 0(s3) */
+	    0xae490000, /* sw t1, 0(s2) */
+	    0x26520004, /* addiu s2, s2, 4 */
+
+	    0x8e690000, /* lw t1, 0(s3) */
+	    0xae490000, /* sw t1, 0(s2) */
+	    0x26520004, /* addiu s2, s2, 4 */
+
+	    /* a0000850 */
+	    0x3c18ffff, /* lui t8, 0xffff */
+	    0x3718ff80, /* ori t8, t8, 0xff80 */
+	    0x02388824, /* and s1, s1, t8 */
+	    0xae11f420, /* sw s1, 0xfffff420(s0) NVMADDR */
+	    0xae00f440, /* sw zero, 0xfffff440(s0) */
+	    0x0c00021d, /* jal nvmunlock */
+	    0x24044003, /* li a0, 0x4003 write row */
+
+	    /* a000086c */
+	    0x1000ffe8, /* b -24 */
+	    0, /* nop */
+
+	    /* a0000874: nvmunlock */
+	    0xae04f400, /* sw a0, 0xfffff400(s0) */
+
+	    0x8e18f400, /* lw t8, 0xfffff400(s0) */
+	    0x33180800, /* andi t8, t8, 0x800 */
+	    0x1700fffd, /* bnez t8, -3 */
+	    0, /* nop */
+
+	    /* a0000888 */
+	    0x3c18aa99, /* lui t8, 0xaa99 */
+	    0x37186655, /* ori t8, t8, 0x6655*/
+	    0xae18f410, /* sw t8, 0xfffff410(s0)*/
+
+	    0x3c185566, /* lui t8, 0x5566 */
+	    0x371899aa, /* ori t8, t8, 0x99aa */
+	    0xae18f410, /* sw t8, 0xfffff410(s0) */
+
+	    /* a00008a0 */
+	    0x34188000, /* li t8, 0x8000 */
+	    0xae18f408, /* sw t8, 0xfffff408(s0)*/
+
+	    0x03e00008, /* jr ra */
+	    0, /* nop */
+
+	    /* a00008b0:waitwr */
+	    0x8e18f400, /* lw t8, 0xfffff400(s0) */
+	    0x33188000, /* andi t8, t8, 0x8000 */
+	    0x1700fffd, /* bnez t8, -3 */
+	    0, /* nop */
+
+	    0x24184000, /* li t8, 0x4000 */
+	    0xae18f404, /* sw t8, 0xfffff404(s0) */
+
+	    0x03e00008, /* jr ra */
+	    0 /* nop */
+	};
+	W i, j, k, new_size;
+	UW v, status, idcode;
+	W timeout;
+	struct writebuf_struct *p;
+
+	if (!writing) {
+		p2ustr("writing\r\n");
+		RPA0R = 0; /* i/o */
+		U1RXR = 0; /* dummy:RA2 */
+		writing = 1;
+
+		/* ---- Enter ICSP ---- */
+		dbg_reg("ICSP: enter", 0);
+		icsp_enter();
+
+		/* ---- Read IDCODE ---- */
+		icsp_SetMode(0x1f, 5);
+		icsp_SetMode(0, 1);
+		idcode = icsp_XferData(0x00000000);
+		p2ustr("IDCODE:");
+		p2uuw(idcode);
+		p2ustr("\r\n");
+
+		if (idcode == 0x00000000 || idcode == 0xffffffff) {
+			p2ustr("IDCODE invalid\r\n");
+			goto teardown;
+		}
+
+		/* ---- STATUS check ---- */
+		icsp_SendCommand(MTAP_SW_MTAP);
+		icsp_SendCommand(MTAP_COMMAND);
+		icsp_XferData8(MCHP_STATUS);
+		icsp_XferData8(MCHP_STATUS);
+		status = icsp_XferData8(MCHP_STATUS);
+		dbg_reg("STATUS", status);
+
+		timeout = 5000;
+		while (timeout-- > 0) {
+			status = icsp_XferData8(MCHP_STATUS);
+			if ((status & STAT_CFGRDY) && !(status & STAT_FCBUSY))
+				break;
+		}
+		dbg_reg("STATwait", status);
+
+		/* ---- Chip erase ---- */
+		dbg_reg("=== CHIP ERASE ===", 0);
+		icsp_SendCommand(MTAP_SW_MTAP);
+		icsp_SendCommand(MTAP_COMMAND);
+		icsp_XferData8(MCHP_ERASE);
+		dbg_reg("erase sent", 0);
+		wait200ms();
+		wait200ms();
+
+		timeout = 10000;
+		do {
+			status = icsp_XferData8(MCHP_STATUS);
+			if (!(status & STAT_FCBUSY))
+				break;
+		} while (timeout-- > 0);
+		dbg_reg("post-erase stat", status);
+
+		if (timeout <= 0) {
+			p2ustr("FCBUSY stuck after erase\r\n");
+			goto teardown;
+		}
+		dbg_reg("erase done", 0);
+
+		/* ---- Enter serial execution ---- */
+		dbg_reg("serial exec...", 0);
+		if (icsp_enter_serial_exec() < 0) {
+			goto teardown;
+		}
+
+		/* ---- PE upload ---- */
+		for (i = 0; i < (W)(sizeof(pe) / sizeof(pe[0])); i++)
+			icsp_write_word(0xa0000800 + sizeof(pe[0]) * i, pe[i]);
+
+		icsp_XferInstruction(0x3c04bf88); /* setup BMXCON */
+		icsp_XferInstruction(0x34842000);
+		icsp_XferInstruction(0x3c05001f);
+		icsp_XferInstruction(0x34a50040);
+		icsp_XferInstruction(0xac850000);
+		icsp_XferInstruction(0x34050800);
+		icsp_XferInstruction(0xac850010);
+		icsp_XferInstruction(0x8c850040);
+		icsp_XferInstruction(0xac850020);
+		icsp_XferInstruction(0xac850030);
+
+		icsp_XferInstruction(0x3c10bf81); /* lui  s0, 0xbf81 */
+		icsp_XferInstruction(0x3c13ff20); /* lui  s3, 0xff20 */
+
+		icsp_XferInstruction(0x3c1da000); /* setup stack */
+		icsp_XferInstruction(0x37bd2000);
+		icsp_XferInstruction(0x3c1aa000); /* jump */
+		icsp_XferInstruction(0x375a0800);
+		icsp_XferInstruction(0x03400008);
+		icsp_XferInstruction(0);
+
+		icsp_SendCommand(ETAP_FASTDATA);
+	}
+
+	/* ---- Write non-bootflash slots ---- */
+	for (i = 0; i < writebufwsize; i++) {
+		p = writebuf + i;
+		if (p->addr == 0x1fc00800)
+			continue;
+		while (p->size < BLOCKSIZE)
+			p->d[p->size++] = 0xff;
+		j = 0;
+		while (j < BLOCKSIZE) {
+			icsp_XferFastData(p->addr + j);
+			for (k = 0; k < 32; k++) {
+				v = p->d[j++];
+				v |= ((UW)p->d[j++]) << 8;
+				v |= ((UW)p->d[j++]) << 16;
+				v |= ((UW)p->d[j++]) << 24;
+				icsp_XferFastData(v);
+			}
+		}
+	}
+
+	if (!final) {
+		/* Compact: keep boot-flash slot(s) only. */
+		new_size = 0;
+		for (i = 0; i < writebufwsize; i++) {
+			if (writebuf[i].addr == 0x1fc00800) {
+				if (new_size != i)
+					writebuf[new_size] = writebuf[i];
+				new_size++;
+			}
+		}
+		writebufwsize = new_size;
+		return;
+	}
+
+	/* ---- Write boot-flash slot(s) ---- */
+	for (i = 0; i < writebufwsize; i++) {
+		p = writebuf + i;
+		if (p->addr != 0x1fc00800)
+			continue;
+		p->d[0x3fc] |= 3; /* debugger enable */
+		while (p->size < BLOCKSIZE)
+			p->d[p->size++] = 0xff;
+		j = 0;
+		while (j < BLOCKSIZE) {
+			icsp_XferFastData(p->addr + j);
+			for (k = 0; k < 32; k++) {
+				v = p->d[j++];
+				v |= ((UW)p->d[j++]) << 8;
+				v |= ((UW)p->d[j++]) << 16;
+				v |= ((UW)p->d[j++]) << 24;
+				icsp_XferFastData(v);
+			}
+		}
+	}
+	/* PE flush trailer (kept identical to the pre-refactor sequence). */
+	for (i = 0; i < 32; i++)
+		icsp_XferFastData(0xffffffff);
+
+teardown:
+	dbg_reg("ICSP: exit", 0);
+	icsp_exit();
+	writing = 0;
+	writebufwsize = 0;
+	RPA0R = 1; /* UTX1 */
+	U1RXR = 4; /* RB2 */
+	p2ustr("run\r\n");
 }
 
 
@@ -1458,289 +1743,29 @@ void main(void)
 	/* USB CDC initialization (replaces UART2) */
 	cdc_init();
 
+	/* Initial passthrough setup: route UART to PGD/PGC, reset target. */
+	p2ustr("mclr\r\n");
+	RPA0R = 1; /* UTX1 */
+	U1RXR = 4; /* RB2 */
+	TRIS_PGD0 = 1; /* in */
+	LAT_MCLR0 = 0;
+	wait1ms();
+	LAT_MCLR0 = 1;
+	writing = 0;
+	p2ustr("run\r\n");
+
+	/*
+	 * Passthrough + hex-receive loop.
+	 *
+	 * rsproc() echoes non-':' characters to the target UART while
+	 * writing == 0.  Once enough hex data accumulates that get_wp()
+	 * runs out of slots (or end-of-file arrives), rsproc() calls
+	 * writeflash(), which enters ICSP, erases, and starts streaming.
+	 * writeflash(1) (on EOF) restores the UART pins itself, so we
+	 * never need to set them up again here.
+	 */
 	for (;;) {
-		UW idcode;
-		UW status;
-		UW addr;
-		W timeout;
-		W i;
-
-		writebufrsize = 0;
-		p2ustr("mclr\r\n");
-
-		RPA0R = 1; /* UTX1 */
-		U1RXR = 4; /* RB2 */
-
-		TRIS_PGD0 = 1; /* in */
-
-		LAT_MCLR0 = 0;
-		wait1ms();
-		LAT_MCLR0 = 1;
-
-		writing = 0;
-
-		p2ustr("run\r\n");
-
-		while (writebufrsize <= 0) {
-			idletask();
-			rsproc();
-		}
-
-		p2ustr("writing\r\n");
-
-		RPA0R = 0; /* i/o */
-		U1RXR = 0; /* dummy:RA2 */
-		writing = 1;
-
-		/* ---- Enter ICSP ---- */
-		dbg_reg("ICSP: enter", 0);
-		icsp_enter();
-
-		/* ---- Read IDCODE ---- */
-		icsp_SetMode(0x1f, 5);
-		icsp_SetMode(0, 1);
-		idcode = icsp_XferData(0x00000000);
-		p2ustr("IDCODE:");
-		p2uuw(idcode);
-		p2ustr("\r\n");
-
-		if (idcode == 0x00000000 || idcode == 0xffffffff) {
-			p2ustr("IDCODE invalid\r\n");
-			icsp_exit();
-			continue;
-		}
-
-		/* ---- STATUS check ---- */
-		icsp_SendCommand(MTAP_SW_MTAP);
-		icsp_SendCommand(MTAP_COMMAND);
-
-		icsp_XferData8(MCHP_STATUS);
-		icsp_XferData8(MCHP_STATUS);
-		status = icsp_XferData8(MCHP_STATUS);
-		dbg_reg("STATUS", status);
-
-		timeout = 5000;
-		while (timeout-- > 0) {
-			status = icsp_XferData8(MCHP_STATUS);
-			if ((status & STAT_CFGRDY) && !(status & STAT_FCBUSY))
-				break;
-		}
-		dbg_reg("STATwait", status);
-
-		/* ---- Chip erase ---- */
-		/*
-		 * Chip erase via MTAP MCHP_ERASE command.
-		 * DS60001145 erase sequence:
-		 *   1. SW_MTAP
-		 *   2. MTAP_COMMAND
-		 *   3. XferData8(MCHP_ERASE)   -- no ASSERT_RST needed
-		 *   4. Wait ~20ms (MX1: typ 20ms, use 400ms for margin)
-		 *   5. Poll MCHP_STATUS until FCBUSY=0
-		 *
-		 * Note: icsp_enter_serial_exec() leaves TAP in ETAP.
-		 * We must switch back to MTAP here.
-		 * Do NOT send ASSERT_RST -- it prevents erase from running.
-		 */
-		dbg_reg("=== CHIP ERASE ===", 0);
-
-		/* Switch to MTAP */
-		icsp_SendCommand(MTAP_SW_MTAP);
-		icsp_SendCommand(MTAP_COMMAND);
-
-		/* Send erase command (same as icsp_check_and_erase) */
-		icsp_XferData8(MCHP_ERASE);
-		dbg_reg("erase sent", 0);
-
-		/* Wait for erase to complete */
-		wait200ms();
-		wait200ms();
-
-		/* Poll FCBUSY until clear */
-		timeout = 10000;
-		do {
-			status = icsp_XferData8(MCHP_STATUS);
-			if (!(status & STAT_FCBUSY))
-				break;
-		} while (timeout-- > 0);
-		dbg_reg("post-erase stat", status);
-
-		if (timeout <= 0) {
-			p2ustr("FCBUSY stuck after erase\r\n");
-			continue;
-		}
-
-		dbg_reg("erase done", 0);
-
-		/* ---- Re-enter serial execution for second dump ---- */
-		dbg_reg("serial exec #2...", 0);
-		if (icsp_enter_serial_exec() < 0) {
-			icsp_exit();
-			continue;
-		}
-		{
-			static const UW pe[] = {
-			    /* a0000800: init */
-			    0x0c00021d, /* jal nvmunlock */
-			    0x24044000, /* li a0, 0x4000 nop */
-			    0x0c00021d, /* jal nvmunlock */
-			    0x24044000, /* li a0, 0x4000 nop */
-
-			    /* a0000810: main */
-			    0x3c12a000, /* lui s2, 0xa000 */
-			    0x3c0aa000, /* lui t2, 0xa000 */
-			    0x354a0078, /* ori t2, t2, 0x0078 */
-			    0x8e710000, /* lw s1, 0(s3) */
-
-			    /* a0000820 */
-			    0x8e690000, /* lw t1, 0(s3) */
-			    0xae490000, /* sw t1, 0(s2) */
-			    0x26520004, /* addiu s2, s2, 4 */
-			    0x164afffc, /* bne s2, t2, -4 */
-			    0, /* nop */
-
-			    0x0c00022c, /* jal waitwr */
-
-			    /* a0000838 */
-			    0x8e690000, /* lw t1, 0(s3) */
-			    0xae490000, /* sw t1, 0(s2) */
-			    0x26520004, /* addiu s2, s2, 4 */
-
-			    0x8e690000, /* lw t1, 0(s3) */
-			    0xae490000, /* sw t1, 0(s2) */
-			    0x26520004, /* addiu s2, s2, 4 */
-
-			    /* a0000850 */
-			    0x3c18ffff, /* lui t8, 0xffff */
-			    0x3718ff80, /* ori t8, t8, 0xff80 */
-			    0x02388824, /* and s1, s1, t8 */
-			    0xae11f420, /* sw s1, 0xfffff420(s0) NVMADDR */
-			    0xae00f440, /* sw zero, 0xfffff440(s0) */
-			    0x0c00021d, /* jal nvmunlock */
-			    0x24044003, /* li a0, 0x4003 write row */
-
-			    /* a000086c */
-			    0x1000ffe8, /* b -24 */
-			    0, /* nop */
-
-			    /* a0000874: nvmunlock */
-			    0xae04f400, /* sw a0, 0xfffff400(s0) */
-
-			    0x8e18f400, /* lw t8, 0xfffff400(s0) */
-			    0x33180800, /* andi t8, t8, 0x800 */
-			    0x1700fffd, /* bnez t8, -3 */
-			    0, /* nop */
-
-			    /* a0000888 */
-			    0x3c18aa99, /* lui t8, 0xaa99 */
-			    0x37186655, /* ori t8, t8, 0x6655*/
-			    0xae18f410, /* sw t8, 0xfffff410(s0)*/
-
-			    0x3c185566, /* lui t8, 0x5566 */
-			    0x371899aa, /* ori t8, t8, 0x99aa */
-			    0xae18f410, /* sw t8, 0xfffff410(s0) */
-
-			    /* a00008a0 */
-			    0x34188000, /* li t8, 0x8000 */
-			    0xae18f408, /* sw t8, 0xfffff408(s0)*/
-
-			    0x03e00008, /* jr ra */
-			    0, /* nop */
-
-			    /* a00008b0:waitwr */
-			    0x8e18f400, /* lw t8, 0xfffff400(s0) */
-			    0x33188000, /* andi t8, t8, 0x8000 */
-			    0x1700fffd, /* bnez t8, -3 */
-			    0, /* nop */
-
-			    0x24184000, /* li t8, 0x4000 */
-			    0xae18f404, /* sw t8, 0xfffff404(s0) */
-
-			    0x03e00008, /* jr ra */
-			    0 /* nop */
-			};
-
-			for (i = 0; i < sizeof(pe) / sizeof(pe[0]); i++)
-				icsp_write_word(0xa0000800 + sizeof(pe[0]) * i, pe[i]);
-		}
-
-		icsp_XferInstruction(0x3c04bf88); /* setup BMXCON */
-		icsp_XferInstruction(0x34842000);
-		icsp_XferInstruction(0x3c05001f);
-		icsp_XferInstruction(0x34a50040);
-		icsp_XferInstruction(0xac850000);
-		icsp_XferInstruction(0x34050800);
-		icsp_XferInstruction(0xac850010);
-		icsp_XferInstruction(0x8c850040);
-		icsp_XferInstruction(0xac850020);
-		icsp_XferInstruction(0xac850030);
-
-		icsp_XferInstruction(0x3c10bf81); /* lui  s0, 0xbf81 */
-		icsp_XferInstruction(0x3c13ff20); /* lui  s3, 0xff20 */
-
-		icsp_XferInstruction(0x3c1da000); /* setup stack */
-		icsp_XferInstruction(0x37bd2000);
-		icsp_XferInstruction(0x3c1aa000); /* jump */
-		icsp_XferInstruction(0x375a0800);
-		icsp_XferInstruction(0x03400008);
-		icsp_XferInstruction(0);
-
-		/*
-		 * HOST <-> CPU exchange loop.
-		 * Each iteration: HOST writes val, CPU adds to acc, CPU writes acc back.
-		 */
-		icsp_SendCommand(ETAP_FASTDATA);
-
-		for (i = 0; i < writebufrsize; i++) {
-			struct writebuf_struct *p;
-			UW v;
-			W j, k;
-
-			p = writebuf + i;
-			if (p->addr == 0x1fc00800)
-				continue;
-			j = 0;
-			while (j < BLOCKSIZE) {
-				icsp_XferFastData(p->addr + j);
-				for (k = 0; k < 32; k++) {
-					v = p->d[j++];
-					v |= ((UW)p->d[j++]) << 8;
-					v |= ((UW)p->d[j++]) << 16;
-					v |= ((UW)p->d[j++]) << 24;
-					icsp_XferFastData(v);
-				}
-			}
-		}
-
-		for (i = 0; i < writebufrsize; i++) {
-			struct writebuf_struct *p;
-			UW v;
-			W j, k;
-
-			j = 0;
-			p = writebuf + i;
-			if (p->addr != 0x1fc00800)
-				continue;
-#if 1
-			p->d[0x3fc] |= 3; /* debugger enable */
-#endif
-
-			while (j < BLOCKSIZE) {
-				icsp_XferFastData(p->addr + j);
-				for (k = 0; k < 32; k++) {
-					v = p->d[j++];
-					v |= ((UW)p->d[j++]) << 8;
-					v |= ((UW)p->d[j++]) << 16;
-					v |= ((UW)p->d[j++]) << 24;
-					icsp_XferFastData(v);
-				}
-			}
-		}
-		icsp_XferFastData(0xffffffff);
-		for (i = 0; i < 31; i++)
-			icsp_XferFastData(0xffffffff);
-
-		/* ---- Exit ICSP ---- */
-		dbg_reg("ICSP: exit", 0);
-		icsp_exit();
+		idletask();
+		rsproc();
 	}
 }
