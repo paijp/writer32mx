@@ -1549,11 +1549,17 @@ void main(void)
 		dbg_reg("STATwait", status);
 
 		/* ---- Enter serial execution ---- */
+		/*
+		 * Disabled: entering serial execution before erase fails when
+		 * the device is code protected, blocking the chip erase below.
+		 */
+#if 0
 		dbg_reg("serial exec...", 0);
 		if (icsp_enter_serial_exec() < 0) {
 			icsp_exit();
 			continue;
 		}
+#endif
 #if 0
 		{
 			UW	addr, v0, v1, v2, v3;
