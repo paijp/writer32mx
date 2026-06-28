@@ -714,13 +714,6 @@ static void wait200ms(void)
 /* Print "label=0xVALUE\r\n" */
 static void dbg_reg(const UB *label, UW val)
 {
-#if 0
-	p2ustr(label);
-	p2udata('=');
-	p2uuw(val);
-	p2ustr("\r\n");
-	idletask();
-#endif
 }
 
 
@@ -1481,31 +1474,10 @@ void main(void)
 
 		p2ustr("run\r\n");
 
-#if 0
-		writebufrsize = 0;
-		writebuf[writebufrsize].d[0] = 0x01;
-		writebuf[writebufrsize].d[1] = 0x02;
-		writebuf[writebufrsize].d[2] = 0x03;
-		writebuf[writebufrsize].d[3] = 0x04;
-		writebuf[writebufrsize].d[4] = 0x05;
-		writebuf[writebufrsize].d[5] = 0x06;
-		writebuf[writebufrsize].d[6] = 0x07;
-		writebuf[writebufrsize].d[0x80] = 0x08;
-		writebuf[writebufrsize].d[0x81] = 0x09;
-		writebuf[writebufrsize].addr = 0x1fc00000;
-		writebuf[writebufrsize].size = BLOCKSIZE;
-		writebufrsize++;
-		writebuf[writebufrsize].d[0] = 0xde;
-		writebuf[writebufrsize].d[1] = 0xdd;
-		writebuf[writebufrsize].addr = 0x1fc00400;
-		writebuf[writebufrsize].size = BLOCKSIZE;
-		writebufrsize++;
-#else
 		while (writebufrsize <= 0) {
 			idletask();
 			rsproc();
 		}
-#endif
 
 		p2ustr("writing\r\n");
 
@@ -1547,156 +1519,6 @@ void main(void)
 				break;
 		}
 		dbg_reg("STATwait", status);
-
-		/* ---- Enter serial execution ---- */
-		/*
-		 * Disabled: entering serial execution before erase fails when
-		 * the device is code protected, blocking the chip erase below.
-		 */
-#if 0
-		dbg_reg("serial exec...", 0);
-		if (icsp_enter_serial_exec() < 0) {
-			icsp_exit();
-			continue;
-		}
-#endif
-#if 0
-		{
-			UW	addr, v0, v1, v2, v3;
-			
-			for (addr=0xbd000000; addr<0xbd040000; addr+=16) {
-				if (addr == 0xbd010000)
-					addr = 0xbd03f000;
-				v0 = icsp_read_word(addr);
-				v1 = icsp_read_word(addr + 4);
-				v2 = icsp_read_word(addr + 8);
-				v3 = icsp_read_word(addr + 0xc);
-				
-				if ((addr & 0xfff) == 0)
-					;
-				else if ((v0 & v1 & v2 & v3) == 0xffffffff)
-					continue;
-				p2uuw(addr);
-				p2ustr(": ");
-				p2uuw(v0);
-				p2ustr(" ");
-				p2uuw(v1);
-				p2ustr(" ");
-				p2uuw(v2);
-				p2ustr(" ");
-				p2uuw(v3);
-				p2ustr("\r\n");
-				while (p2urpos != p2uwpos)
-					idletask();
-			}
-			for (addr=0xbfc00000; addr<0xbfc00c00; addr+=16) {
-				v0 = icsp_read_word(addr);
-				v1 = icsp_read_word(addr + 4);
-				v2 = icsp_read_word(addr + 8);
-				v3 = icsp_read_word(addr + 0xc);
-				
-				if ((v0 & v1 & v2 & v3) == 0xffffffff)
-					continue;
-				p2uuw(addr);
-				p2ustr(": ");
-				p2uuw(v0);
-				p2ustr(" ");
-				p2uuw(v1);
-				p2ustr(" ");
-				p2uuw(v2);
-				p2ustr(" ");
-				p2uuw(v3);
-				p2ustr("\r\n");
-				while (p2urpos != p2uwpos)
-					idletask();
-			}
-		}
-#endif
-#if 0
-		/* ---- Dump #1: before erase ---- */
-		p2ustr("=== DUMP 1 (before erase) ===\r\n");
-		icsp_dump_row("BFM", 0xBFC00000);
-		icsp_dump_row("BFM", 0xBFC00040);
-		icsp_dump_row("BFM", 0xBFC00400);
-		icsp_dump_row("BFM", 0xBFC00b80);
-#endif
-#if 0
-		{
-			static const UW test_vals[] = { 1, 3, 5, 7, 2 };
-			UW acc = 0;
-			W i;
-			
-			p2ustr("=== FASTDATA TEST ===\r\n");
-			
-			icsp_write_word(0xa0000800, 0x8e690000);	/* lw t1, 0(s3) */
-			icsp_write_word(0xa0000804, 0);		/* nop */
-			icsp_write_word(0xa0000808, 0x01094021);	/* addu t0, t0, t1 */
-			icsp_write_word(0xa000080c, 0xae680000);	/* sw t0, 0(s3) */
-			icsp_write_word(0xa0000810, 0);		/* nop */
-			icsp_write_word(0xa0000814, 0x1000fffa);	/* b -5*/
-			icsp_write_word(0xa0000818, 0);		/* nop */
-			
-			icsp_XferInstruction(0x3c04bf88);	/* setup BMXCON */
-			icsp_XferInstruction(0x34842000);
-			icsp_XferInstruction(0x3c05001f);
-			icsp_XferInstruction(0x34a50040);
-			icsp_XferInstruction(0xac850000);
-			icsp_XferInstruction(0x34050800);
-			icsp_XferInstruction(0xac850010);
-			icsp_XferInstruction(0x8c850040);
-			icsp_XferInstruction(0xac850020);
-			icsp_XferInstruction(0xac850030);
-			
-			/* Ensure s3 = 0xFF200000 */
-			icsp_XferInstruction(0x3c13ff20);	/* lui  s3, 0xff20 */
-			icsp_XferInstruction(0x36730000);	/* ori  s3, s3, 0x0000 */
-			
-			/* t0 = 0 (accumulator) */
-			icsp_XferInstruction(0x00004021);	/* addu t0, zero, zero */
-			
-			icsp_XferInstruction(0x3c1da000);	/* setup stack */
-			icsp_XferInstruction(0x37bd2000);
-			icsp_XferInstruction(0x3c1aa000);	/* jump */
-			icsp_XferInstruction(0x375a0800);
-			icsp_XferInstruction(0x03400008);
-			icsp_XferInstruction(0);
-			
-			/*
-			 * HOST <-> CPU exchange loop.
-			 * Each iteration: HOST writes val, CPU adds to acc, CPU writes acc back.
-			 */
-			icsp_SendCommand(ETAP_FASTDATA);
-			while (p2uwpos != p2urpos)
-				idletask();
-			for (i = 0; i < (W)(sizeof(test_vals) / sizeof(test_vals[0])); i++) {
-				UW write_val = test_vals[i];
-				UW read_val;
-				
-				acc += write_val;
-				
-				/* HOST -> CPU: write value */
-				icsp_XferFastData(write_val);
-				
-				/* CPU -> HOST: read accumulator */
-				read_val = icsp_XferFastData(0);
-				
-				/* Print result */
-				p2ustr("  write=");
-				p2uuw(write_val);
-				p2ustr(" read=");
-				p2uuw(read_val);
-				p2ustr(" expect=");
-				p2uuw(acc);
-				p2ustr(read_val == acc ? " OK\r\n" : " FAIL\r\n");
-				while (p2uwpos != p2urpos)
-					idletask();
-			}
-			
-			p2ustr("=== FASTDATA TEST DONE ===\r\n");
-			for (;;)
-				idletask();
-		}
-#endif
 
 		/* ---- Chip erase ---- */
 		/*
@@ -1748,14 +1570,6 @@ void main(void)
 			icsp_exit();
 			continue;
 		}
-#if 0
-		/* ---- Dump #2: after erase ---- */
-		p2ustr("=== DUMP 2 (after erase) ===\r\n");
-		icsp_dump_row("BFM", 0xBFC00000);
-		icsp_dump_row("BFM", 0xBFC00040);
-		icsp_dump_row("BFM", 0xBFC00400);
-		icsp_dump_row("BFM", 0xBFC00b80);
-#endif
 		{
 			static const UW pe[] = {
 			    /* a0000800: init */
@@ -1899,9 +1713,7 @@ void main(void)
 			p = writebuf + i;
 			if (p->addr != 0x1fc00800)
 				continue;
-#if 1
 			p->d[0x3fc] |= 3; /* debugger enable */
-#endif
 
 			while (j < BLOCKSIZE) {
 				icsp_XferFastData(p->addr + j);
