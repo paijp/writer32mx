@@ -714,6 +714,13 @@ static void wait200ms(void)
 /* Print "label=0xVALUE\r\n" */
 static void dbg_reg(const UB *label, UW val)
 {
+#if 0
+	p2ustr(label);
+	p2udata('=');
+	p2uuw(val);
+	p2ustr("\r\n");
+	idletask();
+#endif
 }
 
 
@@ -1713,7 +1720,9 @@ void main(void)
 			p = writebuf + i;
 			if (p->addr != 0x1fc00800)
 				continue;
+#if 1
 			p->d[0x3fc] |= 3; /* debugger enable */
+#endif
 
 			while (j < BLOCKSIZE) {
 				icsp_XferFastData(p->addr + j);
