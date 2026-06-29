@@ -542,7 +542,7 @@ static W recverror = 0x8000;
 
 #define BLOCKSIZE 0x400
 #define ADDRHMASK 0xfffffc00
-#define WRITEBUFSIZE 6	/* small for OTF flush test; production: 32 */
+#define WRITEBUFSIZE 32
 static struct writebuf_struct {
 	UB d[BLOCKSIZE];
 	UW addr;
@@ -553,7 +553,7 @@ static W writebufwsize = 0;
 static W writing = 0;
 
 static struct writebuf_struct *get_wp(UW addr);
-static void writeflash(W final);
+static void writeflash(W isfinal);
 
 
 /* ============================================================ */
@@ -1437,13 +1437,13 @@ static struct writebuf_struct *get_wp(UW addr)
 /*
  * Flush writebuf to flash.
  *
- *   final == 0: mid-stream flush.  Enter ICSP+erase+PE on first call,
- *               write every non-bootflash slot, drop them from the
- *               array, keep the ICSP session open for more data.
- *   final == 1: end-of-file flush.  Same setup if needed, write
- *               non-bootflash, then bootflash (with debugger-enable
- *               set), send the FASTDATA trailer, exit ICSP, restore
- *               UART pins for passthrough.
+ *   isfinal == 0: mid-stream flush.  Enter ICSP+erase+PE on first call,
+ *                 write every non-bootflash slot, drop them from the
+ *                 array, keep the ICSP session open for more data.
+ *   isfinal == 1: end-of-file flush.  Same setup if needed, write
+ *                 non-bootflash, then bootflash (with debugger-enable
+ *                 set), send the FASTDATA trailer, exit ICSP, restore
+ *                 UART pins for passthrough.
  *
  * Re-writing a page that was already written by an earlier flush is
  * safe because the flash bit cells can only transition 1->0 without
@@ -1452,7 +1452,7 @@ static struct writebuf_struct *get_wp(UW addr)
  * rsproc pad-loop fills any leading gap with 0xff and the per-block
  * tail pad below extends it to BLOCKSIZE.
  */
-static void writeflash(W final)
+static void writeflash(W isfinal)
 {
 	static const UW pe[] = {
 	    /* a0000800: init */
@@ -1540,7 +1540,7 @@ static void writeflash(W final)
 	struct writebuf_struct *p;
 
 	if (!writing) {
-		p2ustr(final ? "writing\r\n" : "otf\r\n");
+		p2ustr(isfinal ? "writing\r\n" : "writing otf\r\n");
 		RPA0R = 0; /* i/o */
 		U1RXR = 0; /* dummy:RA2 */
 		writing = 1;
@@ -1655,7 +1655,7 @@ static void writeflash(W final)
 		}
 	}
 
-	if (!final) {
+	if (!isfinal) {
 		p2ustr("flush\r\n");
 		/* Compact: keep boot-flash slot(s) only. */
 		new_size = 0;
