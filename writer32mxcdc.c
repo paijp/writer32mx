@@ -542,7 +542,7 @@ static W recverror = 0x8000;
 
 #define BLOCKSIZE 0x400
 #define ADDRHMASK 0xfffffc00
-#define WRITEBUFSIZE 32
+#define WRITEBUFSIZE 6	/* small for OTF flush test; production: 32 */
 static struct writebuf_struct {
 	UB d[BLOCKSIZE];
 	UW addr;
@@ -1540,7 +1540,7 @@ static void writeflash(W final)
 	struct writebuf_struct *p;
 
 	if (!writing) {
-		p2ustr("writing\r\n");
+		p2ustr(final ? "writing\r\n" : "otf\r\n");
 		RPA0R = 0; /* i/o */
 		U1RXR = 0; /* dummy:RA2 */
 		writing = 1;
@@ -1656,6 +1656,7 @@ static void writeflash(W final)
 	}
 
 	if (!final) {
+		p2ustr("flush\r\n");
 		/* Compact: keep boot-flash slot(s) only. */
 		new_size = 0;
 		for (i = 0; i < writebufwsize; i++) {
