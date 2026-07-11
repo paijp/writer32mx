@@ -9,6 +9,9 @@ Both the writer and the target use PIC32MX270F256B.
 |---|---|
 | `writer32mxuart.c` | Receives Intel HEX via UART2 and programs the target |
 | `writer32mxcdc.c` | Receives Intel HEX via USB CDC and programs the target |
+| `writer32mx-wroom-c20p1305-barcodeuart.c` | Receives Intel HEX over Wi-Fi (ESP-WROOM-02 + ChaCha20-Poly1305); pairing barcodes from a 9600 bps serial reader |
+| `writer32mx-wroom-c20p1305-barcodehid.c` | Same, pairing barcodes from a USB-HID reader in keyboard mode |
+| `c20p1305.h` | ChaCha20-Poly1305 single-file implementation, copied from [paijp/single-file-chacha20poly1305](https://github.com/paijp/single-file-chacha20poly1305) (MIT / public domain) |
 
 ## Hardware
 
@@ -84,6 +87,64 @@ cp test.hex /dev/ttyACM0
 
 When programming is complete the target resets and starts the new program.
 
+### Wi-Fi versions (writer32mx-wroom-c20p1305-*.c)
+
+The host link moves to Wi-Fi: an ESP-WROOM-02 (AT firmware, 115200 bps)
+on UART1 (UTX1=RPB15, U1RX=RPB13) talks to the PHP receiver from
+[paijp/single-file-chacha20poly1305](https://github.com/paijp/single-file-chacha20poly1305)
+`sample-host/`, authenticated and encrypted with ChaCha20-Poly1305.
+ICSP moves to the target's **PGE\*1** pins:
+
+| Writer pin | Target pin | ICSP | Debug serial 115200 8N1 |
+|---|---|---|---|
+| RB1 (P5) | RB0 (PGED1 / UTX2) | ICSP data | target TX -> writer |
+| RB0 (P4) | RB1 (PGEC1 / URX2) | ICSP clock | writer -> target RX |
+| RA1 (P3) | MCLR | Reset control | |
+
+The target's debug output must therefore ride UTX2 on RPB0 (`RPB0R = 2`,
+as the wroomc20p1305-barcodehid firmware does); RB1 must be left as an
+input (or mapped to U2RX) so the writer can drive it.
+
+Pairing follows the wroomc20p1305 samples: for 10 s after boot two
+barcodes may be scanned and are persisted to flash (CP=ON):
+
+```
+WIFI:T:WPA;S:<ssid>;P:<password>;;
+C20P:K:<64 hex key>;U:<URL up to "key0c20=">;;
+```
+
+- `-barcodeuart`: a 9600 bps serial reader wired through a weak resistor
+  onto the WROOM->PIC32 line (the WROOM's TX pin is parked as GPIO input
+  during the window).  Local debug log on UTX2/RPB10.
+- `-barcodehid`: a USB-HID reader in keyboard mode on RB10/RB11 (US and
+  JIS layouts auto-detected).  Local debug log on UTX2/RPB9 (P10).
+
+After the window closes and the Wi-Fi association completes, the writer
+loop runs forever (the local debug log goes quiet; UART2 then belongs to
+the target):
+
+- The target's debug serial is buffered continuously - including during
+  Wi-Fi accesses - and sent to the server as the encrypted request
+  payload.  It appears on the server's `keys/from_<id>` FIFO.
+- The decrypted reply (drained from `keys/to_<id>`, up to ~2 KB per
+  exchange) is fed to the same Intel HEX parser as the CDC/UART
+  versions: non-HEX bytes are echoed to the target UART, HEX records
+  program the target via ICSP with mid-stream flushing.
+- If both the send buffer and the previous exchange were empty, the
+  next server access waits 2 s (aborted early as soon as target data
+  arrives); otherwise it happens immediately, so queued HEX data drains
+  at full rate.
+
+To program a target, write a HEX file into the receiver's FIFO:
+
+```sh
+cat test.hex > keys/to_<id>
+```
+
+The `mclr`/`run`/`writing`/`IDCODE:xxxxxxxx` status messages that the
+CDC/UART versions print to the host appear in `keys/from_<id>`,
+interleaved with the target's debug output.
+
 ## ICSP protocol
 
 Uses the 2-wire Enhanced ICSP defined in DS60001145
@@ -104,7 +165,11 @@ feedback. All testing was performed on real hardware.
   (MTAP command register width, serial execution sequence).
 - [paijp/pic32mx-usb-minimal](https://github.com/paijp/pic32mx-usb-minimal)
   (Apache 2.0) -- Minimal USB CDC driver for PIC32MX270F256B. The USB CDC
-  implementation in `writer32mxcdc.c` is taken from this repository.
+  implementation in `writer32mxcdc.c` and the USB host in
+  `writer32mx-wroom-c20p1305-barcodehid.c` are taken from this repository.
+- [paijp/single-file-chacha20poly1305](https://github.com/paijp/single-file-chacha20poly1305)
+  (MIT / public domain) -- `c20p1305.h` and the WROOM-02 pairing /
+  transport scheme used by the Wi-Fi versions come from this repository.
 
 ## License
 
