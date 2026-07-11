@@ -24,7 +24,7 @@ Both the writer and the target use PIC32MX270F256B.
 |---|---|---|---|
 | RB2 | RB10 (PGED2 / UTX2) | ICSP data | target TX -> writer |
 | RA0 | RB11 (PGEC2 / URX2) | ICSP clock | writer -> target RX |
-| RB1 | MCLR | Reset control | |
+| RA1 | MCLR | Reset control | |
 
 ## Build
 

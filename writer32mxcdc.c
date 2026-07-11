@@ -55,7 +55,7 @@ typedef volatile unsigned int _UW;
  * Pin assignments (writer -> target):
  *   Writer RB2  -> Target RB10 (PGED2)   : ICSP data / 2-wire bit0
  *   Writer RA0  -> Target RB11 (PGEC2)   : ICSP clock / 2-wire bit1
- *   Writer RB1  -> Target MCLR           : reset control
+ *   Writer RA1  -> Target MCLR           : reset control
  */
 
 
@@ -63,7 +63,7 @@ typedef volatile unsigned int _UW;
 
 /* ICSP pins (directly driving target PGEC2/PGED2) */
 #define LAT_PGC0 LATAbits.LATA0
-#define LAT_MCLR0 LATBbits.LATB1
+#define LAT_MCLR0 LATAbits.LATA1
 #define PORT_PGD0 PORTBbits.RB2
 #define LAT_PGD0 LATBbits.LATB2
 #define TRIS_PGD0 TRISBbits.TRISB2
@@ -1718,7 +1718,7 @@ void main(void)
 	CNPDB = 0;
 
 	TRISA = 0x0010; /* -------- ---I--OO */
-	TRISB = 0x2b84; /* OOI-IOII I-OOOIOO */
+	TRISB = 0x2b86; /* OOI-IOII I-OOOIIO */
 
 	ANSELA = 0;
 	ANSELB = 0;
