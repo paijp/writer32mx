@@ -2867,12 +2867,24 @@ void usb_enumerate(void)
 
 	usb_get_descriptor(0x01, 0, buf, 18);
 
+	lcdtp_sendlogs("usb vid=");
+	lcdtp_sendlogub(buf[9]);
+	lcdtp_sendlogub(buf[8]);
+	lcdtp_sendlogs(" pid=");
+	lcdtp_sendlogub(buf[11]);
+	lcdtp_sendlogub(buf[10]);
+	lcdtp_sendlogs("\n");
+
 	usb_get_descriptor(0x02, 0, buf, 9);
 
 	total_len = buf[2] | ((uint16_t)buf[3] << 8);
 	usb_get_descriptor(0x02, 0, buf, total_len);
 
 	g_dev_type = parse_config_desc(buf, total_len);
+
+	lcdtp_sendlogs((g_dev_type == USB_DEV_PRINTER) ? "usb: printer\n"
+	             : (g_dev_type == USB_DEV_KEYBOARD) ? "usb: hid keyboard\n"
+	             : "usb: unknown class\n");
 
 	usb_set_configuration(buf[5]);
 
