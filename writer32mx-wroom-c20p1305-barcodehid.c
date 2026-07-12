@@ -2562,6 +2562,8 @@ void usb_wait_attach_and_reset(void)
 	}
 	U1IR = _U1IR_ATTACHIF_MASK;
 
+	lcdtp_sendlogs("usb attach\n");
+
 	delay_usbms(200);
 
 	if (!U1CONbits.JSTATE) {
