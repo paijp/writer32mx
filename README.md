@@ -147,6 +147,13 @@ The `mclr`/`run`/`writing`/`IDCODE:xxxxxxxx` status messages that the
 CDC/UART versions print to the host appear in `keys/from_<id>`,
 interleaved with the target's debug output.
 
+Note: re-programming the *writer* itself erases its nonce-counter flash
+pages, so its nonces restart near zero while the server's
+`keys/<id>.state` still holds the previous session's (higher) nonce.
+The receiver then rejects every request (HTTP 200 with an empty body)
+as a replay.  After re-flashing a writer that keeps its key, delete the
+server-side `keys/<id>.state` file - or pair a fresh key by barcode.
+
 ## ICSP protocol
 
 Uses the 2-wire Enhanced ICSP defined in DS60001145
@@ -155,7 +162,8 @@ serial execution without a Programming Executive (PE).
 
 ## Authors
 
-Developed by paijp in collaboration with Anthropic's Claude Sonnet 4.6.
+Developed by paijp in collaboration with Anthropic's Claude (Sonnet 4.6,
+Opus 4.8, and Fable 5).
 The requirements, hardware bring-up, and final design decisions were made
 by paijp; Claude drafted and iterated on the source code based on that
 feedback. All testing was performed on real hardware.
