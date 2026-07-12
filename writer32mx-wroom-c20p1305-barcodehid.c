@@ -13,9 +13,6 @@
  * and never return - USB is no longer serviced, which is fine because
  * barcode scanning is over.
  *
- * RB10/RB11 are the USB D+/D- pins here, so the local debug mirror
- * rides UTX2 on RPB9 (P10) instead of RPB10.
- *
  * See writer32mx-wroom-c20p1305-barcodeuart.c for the writer-loop /
  * protocol description.
  *
@@ -61,26 +58,32 @@ typedef volatile unsigned int _UW;
  * Pin assignments:
  *   USB host:  D+/D- on RB10/RB11
  *   WROOM-02:  UTX1=RPB15 (P7), U1RX=RPB13 (P8)
- *   Target:
- *     Writer RB0 (P4) -> Target RB1 (PGEC1)  : ICSP clock / UTX2
- *     Writer RB1 (P5) -> Target RB0 (PGED1)  : ICSP data / U2RX
+ *   Target (same harness as writer32mxcdc/uart):
+ *     Writer RB2 (P6) -> Target RB10 (PGED2) : ICSP data / target debug TX
+ *     Writer RA0 (P2) -> Target RB11 (PGEC2) : ICSP clock / writer -> target
  *     Writer RA1 (P3) -> Target MCLR         : reset control
- *   Local debug log:  UTX2 mirror on RPB9 (P10); muted once the writer
- *     loop starts because UART2 then belongs to the target.
+ *   Local debug log: UTX2 on RPB9 (P10) - RB10/RB11 belong to USB here.
  *
- * The target must run its debug serial as UTX2 on RPB0 (PGED1) and,
- * if it wants writer->target data, U2RX on RPB1 (PGEC1).
+ * UART1 sharing: the WROOM pins and the target's debug line are all
+ * UART1-capable pins (RB2 cannot map to U2RX), so U1RX listens to the
+ * target's debug TX between server exchanges and to the WROOM during
+ * them - target bytes emitted while an exchange is in flight are lost.
+ * U1TX is remapped from RPB15 to RPA0 only for the moments echo bytes
+ * are sent to the target.
+ *
+ * The target runs its debug serial as UTX2 on RPB10 (PGED2) and may
+ * receive on URX2/RPB11 (PGEC2) - the writer32mxcdc/uart conventions.
  */
 
 
 /* ---- Pin definitions for target connection ---- */
 
-/* ICSP pins (directly driving target PGEC1/PGED1) */
-#define LAT_PGC0 LATBbits.LATB0
+/* ICSP pins (directly driving target PGEC2/PGED2) */
+#define LAT_PGC0 LATAbits.LATA0
 #define LAT_MCLR0 LATAbits.LATA1
-#define PORT_PGD0 PORTBbits.RB1
-#define LAT_PGD0 LATBbits.LATB1
-#define TRIS_PGD0 TRISBbits.TRISB1
+#define PORT_PGD0 PORTBbits.RB2
+#define LAT_PGD0 LATBbits.LATB2
+#define TRIS_PGD0 TRISBbits.TRISB2
 
 
 /* ---- Runtime configuration (barcode -> flash -> RAM) ---- */
@@ -188,19 +191,11 @@ static void wait200ms(void)
 
 
 /* ============================================================ */
-/* Local debug log (UTX2 mirror on RPB9)                       */
-/*                                                              */
-/* Used during the setup phase only: once the writer loop       */
-/* starts, UART2 carries server->target data, so local logging  */
-/* is muted (lcdtp_quiet) to keep WROOM chatter off the target. */
+/* Local debug log (UTX2 on RPB9)                               */
 /* ============================================================ */
-
-static	W	lcdtp_quiet = 0;
 
 static	void	lcdtp_sendlogc(W c)
 {
-	if ((lcdtp_quiet))
-		return;
 	while ((U2STAbits.UTXBF))
 		pump();
 	U2TXREG = c;
@@ -286,28 +281,73 @@ static void p2uuw(UW v)
 
 
 /* ============================================================ */
-/* Pump - drain echo buffer, capture target debug serial        */
+/* UART1 source switching + pump                                */
 /*                                                              */
-/* Called from every busy-wait so the target's debug output is  */
-/* collected even while a Wi-Fi access is in flight.            */
+/* The WROOM (RPB15/RPB13) and the target's debug line (RB2,    */
+/* PGED2) all sit on UART1-capable pins, so UART1 is shared:    */
+/* between server exchanges U1RX listens to the target, during  */
+/* an exchange it listens to the WROOM (target bytes emitted    */
+/* meanwhile are lost).  Echo bytes for the target briefly      */
+/* steal U1TX onto RPA0 (PGEC2); the WROOM link is idle then.   */
 /* ============================================================ */
+
+static	W	u1target = 0;	/* 1: U1RX is on RB2 capturing target debug */
+
+static void target_uart_on(void)
+{
+	W c;
+
+	if ((u1target) || (writing))
+		return;
+	U1RXR = 4;	/* RB2 <- target UTX2 (PGED2) */
+	U1STA = 0x1400;
+	while ((U1STAbits.URXDA))
+		c = U1RXREG;
+	(void)c;
+	u1target = 1;
+}
+
+static void target_uart_off(void)
+{
+	if (!u1target)
+		return;
+	if ((U1STAbits.OERR))
+		U1STA = 0x1400;
+	while ((U1STAbits.URXDA))
+		p2udata(U1RXREG);
+	U1RXR = 3;	/* RPB13 <- WROOM */
+	U1STA = 0x1400;
+	u1target = 0;
+}
 
 static void pump(void)
 {
-	while ((p2cwpos != p2crpos) && (U2STAbits.UTXBF == 0)) {
-		U2TXREG = p2cbuf[p2crpos++];
-		if (p2crpos >= BUFFERSIZE)
-			p2crpos = 0;
+	/* Echo bytes for the target: steal U1TX (RPA0/PGEC2) briefly.
+	   Nothing is in flight on the WROOM link between exchanges. */
+	if (!writing && u1target && (p2cwpos != p2crpos)) {
+		RPB15R = 0;	/* WROOM TX pin to GPIO (idle high) */
+		RPA0R = 1;	/* UTX1 -> target URX2 (PGEC2) */
+		while (p2cwpos != p2crpos) {
+			while ((U1STAbits.UTXBF))
+				;
+			U1TXREG = p2cbuf[p2crpos++];
+			if (p2crpos >= BUFFERSIZE)
+				p2crpos = 0;
+		}
+		while (U1STAbits.TRMT == 0)
+			;
+		RPA0R = 0;	/* PGC pin back to GPIO (idle high) */
+		RPB15R = 1;	/* UTX1 back to the WROOM */
 	}
 
-	if ((writing))
+	if ((writing) || !u1target)
 		return;
 
-	if ((U2STAbits.OERR))
-		U2STA = 0x1400;
-	while ((U2STAbits.URXDA)) {
+	if ((U1STAbits.OERR))
+		U1STA = 0x1400;
+	while ((U1STAbits.URXDA)) {
 		W c;
-		c = U2RXREG;
+		c = U1RXREG;
 		p2udata(c);
 	}
 }
@@ -897,7 +937,7 @@ static	void	barcode_char(UB c_def, UB c_alt)
 	reply body is copied into rbuf; returns its length (0 = empty/none,
 	-1 = nonce/MAC mismatch).
 */
-static	W	send_request(const UB *payload, W len, UB *rbuf, W rbufmax)
+static	W	send_request_raw(const UB *payload, W len, UB *rbuf, W rbufmax)
 {
 	static	const	UB	*bin2hex = "0123456789abcdef";
 	static	UB	buf[] = "AT+CIPSEND=0000\r\n";
@@ -1027,6 +1067,19 @@ static	W	send_request(const UB *payload, W len, UB *rbuf, W rbufmax)
 			rbuf[i] = recvbuf[12 + i];
 		return (l < rbufmax) ? l : rbufmax;
 	}
+}
+
+
+/* U1RX belongs to the WROOM for the duration of the exchange; the
+   target's debug line is captured again as soon as it returns. */
+static	W	send_request(const UB *payload, W len, UB *rbuf, W rbufmax)
+{
+	W	n;
+
+	target_uart_off();
+	n = send_request_raw(payload, len, rbuf, rbufmax);
+	target_uart_on();
+	return n;
 }
 
 
@@ -1544,24 +1597,16 @@ static W icsp_enter_serial_exec(void)
 /* ============================================================ */
 
 /*
- * Route UART2 onto the target pins and release the target from reset.
- * The RX FIFO is flushed first so stale bytes (ICSP noise) don't leak
- * into the log stream.
+ * Release the PGD line, point U1RX at the target's debug TX and let
+ * the target out of reset.
  */
 static void passthrough_start(void)
 {
-	W c;
-
 	p2ustr("mclr\r\n");
 
-	RPB0R = 2;	/* UTX2 -> target URX2 (PGEC1) */
-	U2RXR = 2;	/* RPB1 <- target UTX2 (PGED1) */
+	RPA0R = 0;	/* PGC pin: GPIO idle high; U1TX is stolen on demand */
 	TRIS_PGD0 = 1;	/* in */
-
-	U2STA = 0x1400;
-	while ((U2STAbits.URXDA))
-		c = U2RXREG;
-	(void)c;
+	target_uart_on();
 
 	LAT_MCLR0 = 0;
 	wait1ms();
@@ -1832,8 +1877,10 @@ static void writeflash(W isfinal)
 
 	if (!writing) {
 		p2ustr(isfinal ? "writing\r\n" : "writing otf\r\n");
-		RPB0R = 0; /* PGC: i/o */
-		U2RXR = 0; /* park:RPA1 (our MCLR line, idle high) */
+		/* U1RX back to the WROOM so mid-stream exchanges keep
+		   working while the ICSP session is open. */
+		target_uart_off();
+		RPA0R = 0; /* PGC: i/o */
 		writing = 1;
 
 		/* ---- Enter ICSP ---- */
@@ -1992,12 +2039,7 @@ teardown:
 	writebufwsize = 0;
 	/* Restore the UART before releasing reset so the first bytes of
 	   the target's boot log are captured. */
-	RPB0R = 2; /* UTX2 */
-	U2RXR = 2; /* RPB1 */
-	U2STA = 0x1400;
-	while ((U2STAbits.URXDA))
-		v = U2RXREG;
-	(void)v;
+	target_uart_on();
 	LAT_MCLR0 = 1;
 	p2ustr("run\r\n");
 }
@@ -2148,10 +2190,6 @@ static	void	app_polltask(void)
 				;
 		}
 		wifi_run();
-		/* From here UART2 belongs to the target: mute the local
-		   debug mirror so WROOM chatter stays off the target's RX
-		   line. */
-		lcdtp_quiet = 1;
 		writer_loop();	/* never returns */
 	}
 	in_polltask = 0;
@@ -2170,25 +2208,26 @@ static	void	app_init(void)
 	ANSELA = 0;
 	ANSELB = 0;
 
-	/* Target-facing pins: MCLR (RA1) held low until "run"; PGC (RB0)
-	   idle high; PGD (RB1) input.  Other pins keep their POR state. */
+	/* Target-facing pins: MCLR (RA1) held low until "run"; PGC (RA0)
+	   idle high; PGD (RB2) input.  Other pins keep their POR state. */
 	LATAbits.LATA1 = 0;
 	TRISAbits.TRISA1 = 0;
-	LATBbits.LATB0 = 1;
-	TRISBbits.TRISB0 = 0;
-	TRISBbits.TRISB1 = 1;
+	LATAbits.LATA0 = 1;
+	TRISAbits.TRISA0 = 0;
+	TRISBbits.TRISB2 = 1;
 
 	/* WROOM on U1: TX=RPB15, RX=RPB13. RB10/RB11 belong to USB. */
 	RPB15R = 1;		/* UTX1 */
 	U1RXR = 3;		/* RPB13 */
 	TRISBbits.TRISB13 = 1;
+	LATBbits.LATB15 = 1;	/* idle high while U1TX is stolen for the target */
+	TRISBbits.TRISB15 = 0;
 	U1MODE = 0;
 	U1BRG = (10000000 / 115200) - 1;
 	U1MODE = 0x8008;	/* enable N81 4(U1BRG + 1) */
 	U1STA = 0x1400;
 
-	/* UART2: local debug mirror on RPB9 (P10) during setup; routed
-	   onto the target pins (RPB0/RPB1) once the writer loop starts. */
+	/* UART2: local debug log on RPB9 (P10). */
 	RPB9R = 2;		/* UTX2 */
 #ifdef DEBUG_UART_SCAN
 	U2RXR = 2;		/* RPB1: barcode text injection during the window */

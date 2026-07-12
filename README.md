@@ -93,17 +93,20 @@ The host link moves to Wi-Fi: an ESP-WROOM-02 (AT firmware, 115200 bps)
 on UART1 (UTX1=RPB15, U1RX=RPB13) talks to the PHP receiver from
 [paijp/single-file-chacha20poly1305](https://github.com/paijp/single-file-chacha20poly1305)
 `sample-host/`, authenticated and encrypted with ChaCha20-Poly1305.
-ICSP moves to the target's **PGE\*1** pins:
+The target harness is the same as the CDC/UART versions:
 
 | Writer pin | Target pin | ICSP | Debug serial 115200 8N1 |
 |---|---|---|---|
-| RB1 (P5) | RB0 (PGED1 / UTX2) | ICSP data | target TX -> writer |
-| RB0 (P4) | RB1 (PGEC1 / URX2) | ICSP clock | writer -> target RX |
-| RA1 (P3) | MCLR | Reset control | |
+| RB2 | RB10 (PGED2 / UTX2) | ICSP data | target TX -> writer |
+| RA0 | RB11 (PGEC2 / URX2) | ICSP clock | writer -> target RX |
+| RA1 | MCLR | Reset control | |
 
-The target's debug output must therefore ride UTX2 on RPB0 (`RPB0R = 2`,
-as the wroomc20p1305-barcodehid firmware does); RB1 must be left as an
-input (or mapped to U2RX) so the writer can drive it.
+Because the WROOM pins and the target debug line (RB2) are all
+UART1-capable pins (RB2 cannot map to U2RX), UART1 is shared: U1RX
+listens to the target's debug TX between server exchanges and to the
+WROOM during them, so target bytes emitted while an exchange is in
+flight are lost.  U1TX is remapped from RPB15 to RPA0 only while echo
+bytes are sent to the target.
 
 Pairing follows the wroomc20p1305 samples: for 10 s after boot two
 barcodes may be scanned and are persisted to flash (CP=ON):
@@ -120,12 +123,11 @@ C20P:K:<64 hex key>;U:<URL up to "key0c20=">;;
   JIS layouts auto-detected).  Local debug log on UTX2/RPB9 (P10).
 
 After the window closes and the Wi-Fi association completes, the writer
-loop runs forever (the local debug log goes quiet; UART2 then belongs to
-the target):
+loop runs forever:
 
-- The target's debug serial is buffered continuously - including during
-  Wi-Fi accesses - and sent to the server as the encrypted request
-  payload.  It appears on the server's `keys/from_<id>` FIFO.
+- The target's debug serial is buffered (whenever no server exchange is
+  in flight) and sent to the server as the encrypted request payload.
+  It appears on the server's `keys/from_<id>` FIFO.
 - The decrypted reply (drained from `keys/to_<id>`, up to ~2 KB per
   exchange) is fed to the same Intel HEX parser as the CDC/UART
   versions: non-HEX bytes are echoed to the target UART, HEX records
