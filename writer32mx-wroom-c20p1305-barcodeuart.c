@@ -55,10 +55,11 @@ typedef volatile unsigned int _UW;
  *     Writer RB8 (P1) -> Target RB10 (PGED2) : ICSP data / U2RX
  *     Writer RB9 (P10) -> Target RB11 (PGEC2): ICSP clock / UTX2
  *     Writer RA1 (P3) -> Target MCLR         : reset control
- *   Local debug log:  UTX2 mirror on RPB10 (the carrier's own PGD/debug
- *     line, visible through an upstream writer32mxcdc passthrough); muted
- *     once the writer loop starts because UART2 then belongs to the
- *     target (the mirror pin then carries the writer->target stream).
+ *   Local debug log:  UTX2 mirror on RPB0 (P4) - the carrier's own
+ *     PGED1/debug line, visible through an upstream writer32mxcdc
+ *     passthrough; muted once the writer loop starts because UART2 then
+ *     belongs to the target (the mirror pin then carries the
+ *     writer->target stream).
  *
  * The target runs its debug serial as UTX2 on RPB10 (PGED2) and may
  * receive on URX2/RPB11 (PGEC2) - the writer32mxcdc/uart conventions,
@@ -2146,7 +2147,7 @@ void main(void)
 	CNPDB = 0;
 
 	TRISA = 0x0000; /* -------- ---O--OO */
-	TRISB = 0x2900; /* OOI-IOOI O-OOOOOO */
+	TRISB = 0x2902; /* OOI-IOOI O-OOOOIO */
 
 	ANSELA = 0;
 	ANSELB = 0;
@@ -2168,11 +2169,12 @@ void main(void)
 	U1MODE = 0x8008;	/* enable N81 4(U1BRG + 1) */
 	U1STA = 0x1400;
 
-	/* UART2: local debug mirror on RPB10 during setup; routed onto the
+	/* UART2: local debug mirror on RPB0 during setup; routed onto the
 	   target pins (RPB9/RPB8) once the writer loop starts. */
-	RPB10R = 2;		/* UTX2 */
+	RPB0R = 2;		/* UTX2 */
 #ifdef DEBUG_UART_SCAN
-	U2RXR = 3;		/* RPB11: barcode text injection during the window */
+	U2RXR = 2;		/* RPB1: barcode text injection during the window
+				   (the upstream writer's TX line) */
 #endif
 	U2MODE = 0;
 	U2BRG = 86;		/* 115.4kbps */

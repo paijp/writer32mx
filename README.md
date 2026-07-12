@@ -117,7 +117,7 @@ C20P:K:<64 hex key>;U:<URL up to "key0c20=">;;
 
 - `-barcodeuart`: a 9600 bps serial reader wired through a weak resistor
   onto the WROOM->PIC32 line (the WROOM's TX pin is parked as GPIO input
-  during the window).  Local debug log on UTX2/RPB10.
+  during the window).  Local debug log on UTX2/RPB0 (P4).
 - `-barcodehid`: a USB-HID reader in keyboard mode on RB10/RB11 (US and
   JIS layouts auto-detected).  Local debug log on UTX2/RPB0 (P4).
 
