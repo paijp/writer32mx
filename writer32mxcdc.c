@@ -525,7 +525,17 @@ static uint16_t cdc_send(const uint8_t *buf, uint16_t len)
 
 /* ---- Buffer definitions ---- */
 
+/*
+ * BUFFERSIZE and WRITEBUFSIZE dominate the RAM footprint and can be
+ * overridden at build time (-DBUFFERSIZE=... -DWRITEBUFSIZE=...) to fit
+ * smaller parts.  The defaults target the PIC32MX270F256B (64 KB RAM).
+ * A PIC32MX220F032B (32 KB flash / 8 KB RAM) needs BUFFERSIZE=128 and
+ * WRITEBUFSIZE=4, which is the largest pair that still leaves the
+ * linker's minimum stack.
+ */
+#ifndef BUFFERSIZE
 #define BUFFERSIZE 256
+#endif
 static UH p2cbuf[BUFFERSIZE];
 static W p2cwpos = 0;
 static W p2crpos = 0;
@@ -542,7 +552,17 @@ static W recverror = 0x8000;
 
 #define BLOCKSIZE 0x400
 #define ADDRHMASK 0xfffffc00
+#ifndef WRITEBUFSIZE
 #define WRITEBUFSIZE 32
+#endif
+/*
+ * writeflash(0) keeps the boot-flash slot (0x1fc00800) resident across a
+ * mid-stream flush, so one slot can stay permanently occupied; at least
+ * two slots are required for get_wp() to make progress.
+ */
+#if WRITEBUFSIZE < 2
+#error "WRITEBUFSIZE must be at least 2"
+#endif
 static struct writebuf_struct {
 	UB d[BLOCKSIZE];
 	UW addr;
