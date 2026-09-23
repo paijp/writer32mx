@@ -9,6 +9,7 @@ Both the writer and the target use PIC32MX270F256B.
 |---|---|
 | `writer32mxuart.c` | Receives Intel HEX via UART2 and programs the target |
 | `writer32mxcdc.c` | Receives Intel HEX via USB CDC and programs the target |
+| `writer32mxcdcquad.c` | USB CDC version for 4 targets (see below) |
 | `writer32mx-wroom-c20p1305-barcodeuart.c` | Receives Intel HEX over Wi-Fi (ESP-WROOM-02 + ChaCha20-Poly1305); pairing barcodes from a 9600 bps serial reader |
 | `writer32mx-wroom-c20p1305-barcodehid.c` | Same, pairing barcodes from a USB-HID reader in keyboard mode |
 | `c20p1305.h` | ChaCha20-Poly1305 single-file implementation, copied from [paijp/single-file-chacha20poly1305](https://github.com/paijp/single-file-chacha20poly1305) (MIT / public domain) |
@@ -37,6 +38,27 @@ Each version is a single self-contained source file
 
 The Dockerfile at https://github.com/paijp/mplabx can be used to build
 in a containerized environment.
+
+### 4-target CDC version (writer32mxcdcquad.c)
+
+| target | PGC | MCLR | PGD |
+|---|---|---|---|
+| 0 | RA0 | RA1 | RB2 |
+| 1 | RB4 | RB14 | RA4 |
+| 2 | RB7 | RB8 | RB5 |
+| 3 | RB15 | RB9 | RB13 |
+
+- `:ff` resets all four targets.
+- `:feXY` selects target X (0-3) whose serial is sent to USB and which is
+  programmed by HEX data, and the bitmask Y (0-f) of targets receiving the
+  USB serial.  E.g. `:fe25` reads target 2 and sends to targets 0 and 2.
+  Refused (`sel error`) while HEX data is pending.  Default is `:fe01`.
+
+## Build (GitHub Actions)
+
+`.github/workflows/build.yml` builds every source with the XC32 v1.42
+container from [paijp/xc32](https://github.com/paijp/xc32); the `.hex`
+files are available as the `firmware` artifact of each run.
 
 ## Operation
 
