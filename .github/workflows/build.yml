@@ -18,4 +18,25 @@ jobs:
         writer32mxcdcquad.hex
         writer32mx-wroom-c20p1305-barcodeuart.hex
         writer32mx-wroom-c20p1305-barcodehid.hex
-      output-directory: release
+      output-directory: rel
+
+  commit:
+    needs: firmware
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: rel
+      - name: Commit rel/
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add rel
+          git diff --cached --quiet && exit 0
+          git commit -m "Update rel/ from ${GITHUB_SHA::7} [skip ci]"
+          git push

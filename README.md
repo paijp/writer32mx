@@ -58,7 +58,8 @@ in a containerized environment.
 
 `.github/workflows/build.yml` builds every source with the XC32 v1.42
 container from [paijp/xc32](https://github.com/paijp/xc32); the `.hex`
-files are available as the `firmware` artifact of each run.
+files are available as the `firmware` artifact of each run, and pushes
+to `main` commit them into `rel/`.
 
 ## Operation
 
