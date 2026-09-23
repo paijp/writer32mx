@@ -1,0 +1,21 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  firmware:
+    uses: paijp/xc32/.github/workflows/build.yml@main
+    with:
+      device: 32MX270F256B
+      makefile: shared
+      targets: >-
+        writer32mxuart.hex
+        writer32mxcdc.hex
+        writer32mxcdcquad.hex
+        writer32mx-wroom-c20p1305-barcodeuart.hex
+        writer32mx-wroom-c20p1305-barcodehid.hex
+      output-directory: release
