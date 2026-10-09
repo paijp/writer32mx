@@ -1281,6 +1281,93 @@ static W icsp_enter_serial_exec(void)
 
 
 /* ============================================================ */
+/* PIC12F1822 LVP (DS41390), read-only probe                    */
+/* ============================================================ */
+
+/*
+ * Commands are 6 bits, data is a 16-bit frame (0, 14 data bits, 0),
+ * both LSb first, latched on the falling edge of ICSPCLK.
+ */
+static void p12_clock_out(UW v, W bits)
+{
+	W i;
+
+	TRIS_PGD0 = 0;
+	for (i = 0; i < bits; i++) {
+		LAT_PGD0 = (v >> i) & 1;
+		wait1us();
+		LAT_PGC0 = 1;
+		wait1us();
+		LAT_PGC0 = 0;
+	}
+	wait1us(); /* TDLY */
+}
+
+static UW p12_read(UW cmd)
+{
+	UW v = 0;
+	W i;
+
+	p12_clock_out(cmd, 6);
+	TRIS_PGD0 = 1;
+	for (i = 0; i < 16; i++) {
+		LAT_PGC0 = 1;
+		wait1us();
+		if (PORT_PGD0)
+			v |= 1 << i;
+		LAT_PGC0 = 0;
+		wait1us();
+	}
+	wait1us();
+	return (v >> 1) & 0x3fff;
+}
+
+static void p12_probe(void)
+{
+	UW key = 0x4D434850; /* "MCHP", LSb first + 33rd clock */
+	W i;
+
+	writing = 1;
+	RPA0R = 0; /* i/o */
+	U1RXR = 0; /* dummy:RA2 */
+	LAT_PGC0 = 0;
+	LAT_PGD0 = 0;
+	TRIS_PGD0 = 0;
+	LAT_MCLR0 = 0;
+	wait1ms();
+	p12_clock_out(key, 32);
+	p12_clock_out(0, 1);
+	wait1ms();
+
+	p12_clock_out(0x00, 6); /* Load Configuration: PC = 0x8000 */
+	p12_clock_out(0, 16);
+	for (i = 0; i < 9; i++) {
+		p2ustr("P12:");
+		p2uuw(0x8000 + i);
+		p2udata('=');
+		p2uuw(p12_read(0x04));
+		p2ustr("\r\n");
+		while (p2urpos != p2uwpos)
+			idletask();
+		p12_clock_out(0x06, 6); /* Increment Address */
+	}
+	p12_clock_out(0x16, 6); /* Reset Address */
+	p2ustr("P12:0000=");
+	p2uuw(p12_read(0x04));
+	p2ustr("\r\n");
+
+	LAT_PGC0 = 0;
+	LAT_PGD0 = 0;
+	TRIS_PGD0 = 1;
+	LAT_MCLR0 = 1;
+	RPA0R = 1; /* UTX1 */
+	U1RXR = 4; /* RB2 */
+	writing = 0;
+	p2ustr("run\r\n");
+}
+
+
+/* ============================================================ */
 /* Intel HEX parser                                             */
 /* ============================================================ */
 
@@ -1357,6 +1444,13 @@ static void rsproc(void)
 			LAT_MCLR0 = 1;
 			p2ustr("run\r\n");
 		}
+		linewpos = -1;
+		return;
+	}
+	if ((linewpos == 0) && (c == 0xfd)) {
+		/* Custom ":FD": dump PIC12F1822 config space via LVP. */
+		if (!writing)
+			p12_probe();
 		linewpos = -1;
 		return;
 	}
