@@ -57,15 +57,15 @@ w32ctl new [minutes]                   mint a session (default 60), start the co
 w32ctl msg <text>                      progress message on the page
 w32ctl wait [text]                     highlighted "look here" message
 w32ctl close [text]                    end the session
-w32ctl run [sec]                       reset the target (:FF) and log sec seconds (default 10)
-w32ctl flash <file.hex> [sec]          write the image, then log sec seconds
+w32ctl reset [sec]                     send :FF (reset the target) and log sec seconds (default 10); run is an alias
+w32ctl flash <file.hex> [sec]          write the image, then log sec seconds (no :FF needed: the writer releases reset when writing ends)
 w32ctl jobwait [sec]                   block until the current job ends (default 50)
 w32ctl log [bytes]                     tail of the session's log (log.bin)
 w32ctl events [n]                      last n events the page reported (JSON lines)
 w32ctl status                          control.json, whether the page was opened, time left
 w32ctl askreload [text]                ask the user to reload by hand
 w32ctl reload                          make open pages reload (after editing app.js)
-(run and flash take --tx TEXT, escapes like \r\n allowed: sent 1 s after the target starts)
+(reset and flash take --tx TEXT, escapes like \r\n allowed: sent 1 s after the target starts)
 ```
 
 The page uploads everything received while connected, not only during
@@ -108,5 +108,5 @@ cd /srv/writer32mx && ./w32ctl flash img/foo.hex 8 --tx 'hello\r\n' && ./w32ctl 
 ## Tested
 
 With a mock port in headless Chromium: standalone load, relay session,
-flash job (HEX check, wait for `writing`/`run`, `--tx`), run job, log and
+flash job (HEX check, wait for `writing`/`run`, `--tx`), reset job, log and
 event upload. Not yet tested on a real writer32mxcdc.

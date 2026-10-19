@@ -6,7 +6,8 @@ shell access to the server).
   w32ctl msg <text>          set the message the page shows (progress)
   w32ctl wait [text]         Claude has stopped: highlight "look at Claude"
   w32ctl close [text]        end the session; the page shows text for 10 min
-  w32ctl run [sec]             reset the target (:FF), log for sec (default 10)
+  w32ctl reset [sec]           send :FF (reset the target), log for sec (default 10)
+                               (run is an alias)
   w32ctl flash <file.hex> [sec]   write it, then log for sec
   (run and flash take --tx TEXT: sent 1 s after the program starts)
   w32ctl jobwait [sec]       wait for the current job to finish (default 50)
@@ -98,12 +99,12 @@ def main(a):
         c["message"] = " ".join(a[1:]) or "完了しました。このタブを閉じて Claude に戻ってください。"
         c["expires"] = min(c["expires"], time.time() + 600)
         save(d, c)
-    elif cmd == "run":
+    elif cmd in ("reset", "run"):
         c.pop("reloadAsk", None)
-        c["job"] = {"id": "j%d" % (c.get("seq", 0) + 1), "kind": "run",
+        c["job"] = {"id": "j%d" % (c.get("seq", 0) + 1), "kind": "reset",
                     "seconds": float(a[1]) if len(a) > 1 else 10}
         if tx is not None: c["job"]["tx"] = tx
-        c["message"] = "ターゲットをリセットして実行し、ログを受信します。"
+        c["message"] = ":FF を送ってターゲットをリセットし、ログを受信します。"
         c["attention"] = False
         save(d, c)
         print(c["job"]["id"])

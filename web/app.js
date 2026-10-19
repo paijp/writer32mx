@@ -338,7 +338,8 @@
 		}).catch(function () {});
 	}
 
-	// job: { id, kind: "run" | "flash", file, seconds, tx, txDelayMs }
+	// job: { id, kind: "reset" | "flash", file, seconds, tx, txDelayMs }
+	// flash needs no :FF afterwards: the writer releases reset when done.
 	async function runJob(job) {
 		busy = true; busySince = Date.now();
 		btnWrite.disabled = btnReset.disabled = true;
@@ -359,7 +360,7 @@
 				if (!r.ok) throw new Error("could not fetch " + job.file);
 				usbP.textContent = job.file + " を書き込んでいます…";
 				await writeHex(await r.text(), job.file);
-			} else if (job.kind === "run") {
+			} else if (job.kind === "reset" || job.kind === "run") {
 				usbP.textContent = "リセットして実行します…";
 				var ran = waitText(/\nrun\r?\n/, 5000);
 				ran.catch(function () {});
