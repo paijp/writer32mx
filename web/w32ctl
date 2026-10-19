@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""The server side of the writer32mx web relay (for Claude, or anyone with
+shell access to the server).
+
+  w32ctl new [minutes]       mint a session, print its URL (default 60 min)
+  w32ctl msg <text>          set the message the page shows (progress)
+  w32ctl wait [text]         Claude has stopped: highlight "look at Claude"
+  w32ctl close [text]        end the session; the page shows text for 10 min
+  w32ctl run [sec]             reset the target (:FF), log for sec (default 10)
+  w32ctl flash <file.hex> [sec]   write it, then log for sec
+  (run and flash take --tx TEXT: sent 1 s after the program starts)
+  w32ctl jobwait [sec]       wait for the current job to finish (default 50)
+  w32ctl log [bytes]         tail of the serial log (default 4000)
+  w32ctl askreload [text]    ask the user to reload (hidden once they have)
+  w32ctl reload              make open pages reload (after changing app.js)
+  w32ctl events [n]          the page's last n events
+  w32ctl status              current session's control and whether it was opened
+
+The current session's token is kept in DATA/current (root-only), so the
+commands after `new` need no argument.
+"""
+import hashlib, json, os, secrets, subprocess, sys, time
+
+DATA = os.environ.get("W32_DATA", "/srv/writer32mx")
+URL = os.environ.get("W32_URL", "https://example.com/writer32mx/") + "#t="
+PORT = os.environ.get("W32_PORT", "5311")
+NAME = "writer32mx"
+
+
+def cur():
+    t = open(os.path.join(DATA, "current")).read().strip()
+    return t, os.path.join(DATA, "s", hashlib.sha256(t.encode()).hexdigest())
+
+
+def load(d):
+    return json.load(open(os.path.join(d, "control.json")))
+
+
+def save(d, c):
+    c["seq"] = c.get("seq", 0) + 1
+    tmp = os.path.join(d, "control.json.tmp")
+    with open(tmp, "w") as f:
+        json.dump(c, f, ensure_ascii=False)
+    os.replace(tmp, os.path.join(d, "control.json"))
+
+
+def ensure_server():
+    """Start the web container if it is not running; it exits on its own once
+    no session is left, so nothing runs while the page is not in use."""
+    r = subprocess.run(["podman", "container", "inspect", "-f", "{{.State.Running}}", NAME],
+                       capture_output=True, text=True)
+    if r.stdout.strip() == "true":
+        return
+    subprocess.run(["podman", "rm", "-f", NAME], capture_output=True)
+    subprocess.run(["podman", "run", "-d", "--name", NAME, "--rm",
+                    "-p", "127.0.0.1:%s:%s" % (PORT, PORT), "-v", DATA + ":" + DATA + ":Z",
+                    "-e", "W32_DATA=" + DATA, "-e", "W32_PORT=" + PORT,
+                    "docker.io/library/python:3.13-slim",
+                    "python3", "-u", DATA + "/app/server.py"],
+                   check=True, capture_output=True)
+    time.sleep(1)
+
+
+def main(a):
+    # --tx TEXT anywhere: send TEXT to the target 1 s after it starts
+    # (escapes like \\r\\n are interpreted).
+    tx = None
+    if "--tx" in a:
+        i = a.index("--tx"); tx = a[i + 1].encode().decode("unicode_escape"); del a[i:i + 2]
+    if not a:
+        print(__doc__); return 2
+    cmd = a[0]
+    if cmd == "new":
+        mins = float(a[1]) if len(a) > 1 else 60
+        t = secrets.token_urlsafe(24)
+        d = os.path.join(DATA, "s", hashlib.sha256(t.encode()).hexdigest())
+        os.makedirs(os.path.join(d, "files"), mode=0o700)
+        save(d, {"state": "open", "expires": time.time() + mins * 60,
+                 "message": "Claude と接続しました。", "job": None})
+        old = os.umask(0o077)
+        open(os.path.join(DATA, "current"), "w").write(t)
+        os.umask(old)
+        ensure_server()
+        print(URL + t)
+        return 0
+    t, d = cur()
+    c = load(d)
+    if cmd == "msg":
+        c.pop("reloadAsk", None)
+        c["message"] = " ".join(a[1:]); c["attention"] = False; save(d, c)
+    elif cmd == "wait":
+        c.pop("reloadAsk", None)
+        c["message"] = " ".join(a[1:]) or "Claude を見てください。"
+        c["attention"] = True; save(d, c)
+    elif cmd == "close":
+        c.pop("reloadAsk", None)
+        c["state"] = "closed"
+        c["message"] = " ".join(a[1:]) or "完了しました。このタブを閉じて Claude に戻ってください。"
+        c["expires"] = min(c["expires"], time.time() + 600)
+        save(d, c)
+    elif cmd == "run":
+        c.pop("reloadAsk", None)
+        c["job"] = {"id": "j%d" % (c.get("seq", 0) + 1), "kind": "run",
+                    "seconds": float(a[1]) if len(a) > 1 else 10}
+        if tx is not None: c["job"]["tx"] = tx
+        c["message"] = "ターゲットをリセットして実行し、ログを受信します。"
+        c["attention"] = False
+        save(d, c)
+        print(c["job"]["id"])
+    elif cmd == "flash":
+        c.pop("reloadAsk", None)
+        import shutil
+        name = os.path.basename(a[1])
+        shutil.copy(a[1], os.path.join(d, "files", name))
+        c["job"] = {"id": "j%d" % (c.get("seq", 0) + 1), "kind": "flash", "file": name,
+                    "seconds": float(a[2]) if len(a) > 2 else 10}
+        if tx is not None: c["job"]["tx"] = tx
+        c["message"] = name + " を書き込み、実行してログを受信します。"
+        c["attention"] = False
+        save(d, c)
+        print(c["job"]["id"])
+    elif cmd == "jobwait":
+        jid = (c.get("job") or {}).get("id")
+        end = time.time() + (float(a[1]) if len(a) > 1 else 50)
+        p = os.path.join(d, "events.jsonl")
+        while time.time() < end:
+            if os.path.exists(p):
+                for line in open(p):
+                    ev = json.loads(line)["ev"]
+                    if ev.get("id") == jid and ev.get("what") in ("job-done", "job-failed"):
+                        print(json.dumps(ev, ensure_ascii=False)); return 0
+            time.sleep(1)
+        print("still running" if jid else "no job"); return 1
+    elif cmd == "log":
+        n = int(a[1]) if len(a) > 1 else 4000
+        p = os.path.join(d, "log.bin")
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                f.seek(max(0, os.path.getsize(p) - n))
+                sys.stdout.write(f.read().decode("utf-8", "replace"))
+    elif cmd == "askreload":
+        # Ask the user to reload by hand (for a page too old to obey "reload").
+        # The page shows this only if it was loaded before the request.
+        c["reloadAsk"] = {"seq": c.get("seq", 0) + 1,
+                          "text": " ".join(a[1:]) or "このページを一度リロードしてください（自動で再接続します）。"}
+        save(d, c)
+    elif cmd == "reload":
+        c["rev"] = c.get("rev", 0) + 1; save(d, c)
+    elif cmd == "events":
+        n = int(a[1]) if len(a) > 1 else 20
+        p = os.path.join(d, "events.jsonl")
+        if os.path.exists(p):
+            sys.stdout.write("".join(open(p).readlines()[-n:]))
+    elif cmd == "status":
+        print(json.dumps(c, ensure_ascii=False))
+        s = os.path.join(d, "seen")
+        print("opened:", time.ctime(float(open(s).read())) if os.path.exists(s) else "not yet")
+        print("expires in %.0f s" % (c["expires"] - time.time()))
+    else:
+        print(__doc__); return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

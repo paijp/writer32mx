@@ -12,6 +12,7 @@ Both the writer and the target use PIC32MX270F256B.
 | `writer32mxcdcquad.c` | USB CDC version for 4 targets (see below) |
 | `writer32mx-wroom-c20p1305-barcodeuart.c` | Receives Intel HEX over Wi-Fi (ESP-WROOM-02 + ChaCha20-Poly1305); pairing barcodes from a 9600 bps serial reader |
 | `writer32mx-wroom-c20p1305-barcodehid.c` | Same, pairing barcodes from a USB-HID reader in keyboard mode |
+| `web/` | Browser page (Web Serial / WebUSB) for `writer32mxcdc.c`: write HEX, reset, serial log; optional server relay. See [web/README.md](web/README.md) |
 | `c20p1305.h` | ChaCha20-Poly1305 single-file implementation, copied from [paijp/single-file-chacha20poly1305](https://github.com/paijp/single-file-chacha20poly1305) (MIT / public domain) |
 
 ## Hardware
