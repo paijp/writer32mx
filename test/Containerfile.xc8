@@ -1,0 +1,9 @@
+# XC8 v1.38 for building pic12f1822-hello.c.  Put the installer
+# (xc8-v1.38-full-install-linux-installer.run, from Microchip's archive)
+# next to this file, then:
+#   podman build -t xc8:v1.38 -f Containerfile.xc8 .
+FROM docker.io/library/debian:bookworm-slim
+RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends libc6:i386 libstdc++6:i386 make && rm -rf /var/lib/apt/lists/*
+COPY xc8-v1.38-full-install-linux-installer.run /tmp/xc8.run
+RUN chmod +x /tmp/xc8.run && /tmp/xc8.run --mode unattended --netservername "" --prefix /opt/microchip/xc8/v1.38 && rm /tmp/xc8.run
+ENV PATH=/opt/microchip/xc8/v1.38/bin:$PATH
