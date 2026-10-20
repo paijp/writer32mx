@@ -36,11 +36,13 @@
 		'<div class="row"><button id="conn" style="padding:10px 16px">ライターに接続</button>' +
 		'<button id="connusb" hidden>WebUSB で接続</button></div>' +
 		'<p id="usb" style="margin:8px 0"></p>' +
+		// The manual controls are hidden in relay mode: Claude drives the board.
+		'<div id="manual"' + (T ? ' hidden' : '') + '>' +
 		'<div class="row"><input type="file" id="file" accept=".hex,.ihx,.txt">' +
 		'<button id="write" disabled>書き込み</button><button id="reset" disabled>リセット (:FF)</button></div>' +
 		'<div class="row"><input id="tx" placeholder="ターゲットへ送る文字列" style="flex:1;min-width:10em">' +
-		'<label><input type="checkbox" id="crlf" checked>CR+LF</label><button id="send" disabled>送信</button></div>' +
-		'<div class="row"><button id="clear">ログ消去</button><button id="save">ログ保存</button></div>' +
+		'<button id="send" disabled>送信</button></div>' +
+		'<div class="row"><button id="clear">ログ消去</button><button id="save">ログ保存</button></div></div>' +
 		'<pre id="log"></pre>' +
 		(T ? '<p id="tap" style="margin:8px 0;font-size:.9em;opacity:.8">画面をどこか一度タップすると、終了時などに振動でお知らせします。</p>' : '') +
 		'<pre id="ev" style="opacity:.75"></pre>';
@@ -247,7 +249,7 @@
 		if (!T) mark("write " + name + " " + new Date().toISOString());
 		var done = waitText(/writing( otf)?\r?\n[\s\S]*\nrun\r?\n/, 300000, /IDCODE invalid\r?\n|FCBUSY stuck[^\n]*\n/);
 		done.catch(function () {});
-		var b = enc.encode(text.replace(/\r?\n/g, "\r\n")), t = Date.now();
+		var b = enc.encode(text.replace(/\r?\n/g, "\n")), t = Date.now();
 		for (var o = 0; o < b.length; o += 4096) {
 			await port.write(b.slice(o, o + 4096));
 			usbP.textContent = "送信中 " + Math.round(Math.min(b.length, o + 4096) * 100 / b.length) + "%";
@@ -276,7 +278,7 @@
 	btnReset.onclick = function () { manual(function () { return resetTarget(); }); };
 	btnSend.onclick = function () {
 		if (!port) return;
-		var s = $("tx").value + ($("crlf").checked ? "\r\n" : "");
+		var s = $("tx").value + "\n";
 		// ':' at the start of a line would be taken for a HEX record.
 		if (/(^|\n):/.test(s)) { usbP.textContent = "行頭の ':' は HEX レコードとして扱われるため送信しません。"; return; }
 		port.write(enc.encode(s)).catch(function (e) { usbP.textContent = "送信失敗: " + e; });

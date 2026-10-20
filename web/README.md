@@ -27,13 +27,14 @@ http.server` and open `http://localhost:8000/`), then:
    flash and the configuration words only on it), sends the file and waits
    for the writer's `writing` ... `run`.
 3. 「リセット (:FF)」 resets the target; the text box sends to the target's
-   UART. A line starting with `:` is refused, since the writer would take it
+   UART with LF (`\n`) appended; HEX files are also sent with LF only. A line starting with `:` is refused, since the writer would take it
    for a HEX record.
 4. 「ログ保存」 saves everything received.
 
 ## Relay mode (driven from a server, e.g. by Claude)
 
-Opened as `https://<host>/writer32mx/#t=<token>`, the same page also polls a
+Opened as `https://<host>/writer32mx/#t=<token>`, the page hides the manual
+controls (only the connect button, messages and log remain), polls a
 small relay for jobs and uploads the log and what it did, so someone with
 shell access to the server (for example Claude through an `exec_command`
 connector) can flash and run the target on the user's desk while the user
