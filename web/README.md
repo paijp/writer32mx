@@ -31,6 +31,19 @@ http.server` and open `http://localhost:8000/`), then:
    for a HEX record.
 4. 「ログ保存」 saves everything received.
 
+## Offline (one file)
+
+`writer32mx.html` is `index.html` with `app.js` inlined: download it and
+open it from disk in Chrome / Edge, no network needed (pages opened from
+`file://` may use Web Serial / WebUSB).  It works like the standalone
+page.  Regenerate it with `python3 make-offline.py` after changing
+`index.html` or `app.js`.
+
+Download: https://github.com/paijp/writer32mx/raw/main/web/writer32mx.html
+
+On Android, Chrome generally cannot open a downloaded HTML file from
+storage, so use the hosted page there.
+
 ## Relay mode (driven from a server, e.g. by Claude)
 
 Opened as `https://<host>/writer32mx/#t=<token>`, the page hides the manual
