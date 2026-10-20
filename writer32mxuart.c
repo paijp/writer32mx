@@ -804,7 +804,9 @@ static void rsproc()
 	if (u2prpos >= BUFFERSIZE)
 		u2prpos = 0;
 	
-	if (c == ':') {
+	/* ';' also starts a record, so a HEX for this writer can pass through
+	 * another writer (which only acts on ':') with ':' replaced by ';'. */
+	if ((c == ':') || (c == ';')) {
 		linewpos = 0;
 		upper = -1;
 		linesum = 0;
@@ -921,6 +923,264 @@ static void rsproc()
 }
 
 
+#define P12_NBUF writebufrsize
+#define P12_IDLE() idletask()
+
+/* ============================================================ */
+/* PIC12F1822-family LVP (DS41390, 6-bit commands)              */
+/* Selected when the HEX image has addresses below 0x01000000:  */
+/* program words at byte 0x0000-, config 0x10000- (word 0x8000),*/
+/* EEPROM at 0x1E000- (word 0xF000).                            */
+/* ICSPCLK = PGC, ICSPDAT = PGD, MCLR = LAT_MCLR0 (as for PIC32).*/
+/* ============================================================ */
+
+#define P12_LOADCONF	0x00
+#define P12_LOADPM	0x02
+#define P12_LOADDM	0x03
+#define P12_READPM	0x04
+#define P12_READDM	0x05
+#define P12_INC		0x06
+#define P12_BEGIN	0x08
+#define P12_BULKPM	0x09
+#define P12_BULKDM	0x0b
+
+static void wait_ms(W n)
+{
+	while (n-- > 0)
+		wait1ms();
+}
+
+/* Data is latched by the target on the falling edge of ICSPCLK. */
+static void p12_bits(UW v, W n)
+{
+	W i;
+
+	TRIS_PGD0 = 0;
+	for (i = 0; i < n; i++) {
+		LAT_PGD0 = (v >> i) & 1;
+		wait1us();
+		LAT_PGC0 = 1;
+		wait1us();
+		LAT_PGC0 = 0;
+		wait1us();
+	}
+}
+
+static void p12_cmd(W cmd)
+{
+	p12_bits(cmd, 6);
+	wait1us();
+}
+
+/* 16 clocks: start bit 0, 14 data bits LSb first, stop bit 0 */
+static void p12_load(W cmd, UW w)
+{
+	p12_cmd(cmd);
+	p12_bits((w & 0x3fff) << 1, 16);
+	wait1us();
+}
+
+static UW p12_read(W cmd)
+{
+	UW v = 0;
+	W i;
+
+	p12_cmd(cmd);
+	TRIS_PGD0 = 1;
+	for (i = 0; i < 16; i++) {
+		LAT_PGC0 = 1;
+		wait1us();
+		if (PORT_PGD0)
+			v |= 1 << i;
+		LAT_PGC0 = 0;
+		wait1us();
+	}
+	TRIS_PGD0 = 0;
+	wait1us();
+	return (v >> 1) & 0x3fff;
+}
+
+static void p12_inc(W n)
+{
+	while (n-- > 0)
+		p12_cmd(P12_INC);
+}
+
+/* MCLR low, then the 32-bit key "MCHP" LSb first plus one clock. */
+static void p12_enter(void)
+{
+	TRIS_PGD0 = 0;
+	LAT_PGC0 = 0;
+	LAT_PGD0 = 0;
+	LAT_MCLR0 = 0;
+	wait_ms(5);
+	p12_bits(0x4D434850, 32);
+	p12_bits(0, 1);
+	wait_ms(1);
+}
+
+static void p12_exit(void)
+{
+	LAT_PGC0 = 0;
+	LAT_PGD0 = 0;
+	TRIS_PGD0 = 1;
+	wait1ms();
+	LAT_MCLR0 = 1;
+	wait_ms(10);
+}
+
+static UW p12_byte(UW a)
+{
+	W i;
+
+	for (i = 0; i < P12_NBUF; i++)
+		if ((writebuf[i].addr == (a & ADDRHMASK)) && ((a & ~ADDRHMASK) < writebuf[i].size))
+			return writebuf[i].d[a & ~ADDRHMASK];
+	return 0xff;
+}
+
+/* word address -> 14-bit word from the image (0x3fff if absent) */
+static UW p12_word(UW wa)
+{
+	return (p12_byte(wa * 2) | (p12_byte(wa * 2 + 1) << 8)) & 0x3fff;
+}
+
+static W p12_has(UW lo, UW hi)
+{
+	W i;
+
+	for (i = 0; i < P12_NBUF; i++)
+		if ((writebuf[i].addr < hi) && (writebuf[i].addr + BLOCKSIZE > lo))
+			return 1;
+	return 0;
+}
+
+static void p12_verr(const UB *what, UW wa, UW got, UW want)
+{
+	p2ustr(what);
+	p2uuw(wa);
+	p2udata(' ');
+	p2uuw(got);
+	p2udata('/');
+	p2uuw(want);
+	p2ustr("\r\n");
+}
+
+static void pic12_write(void)
+{
+	UW devid, w, wa, v, pmend = 0;
+	W i, errs = 0;
+
+	for (i = 0; i < P12_NBUF; i++)
+		if ((writebuf[i].addr < 0x10000) && (writebuf[i].addr / 2 + BLOCKSIZE / 2 > pmend))
+			pmend = writebuf[i].addr / 2 + BLOCKSIZE / 2;
+
+	/* ---- device ID (0x8006) ---- */
+	p12_enter();
+	p12_load(P12_LOADCONF, 0x3fff);
+	p12_inc(6);
+	devid = p12_read(P12_READPM);
+	p2ustr("PIC12 DEVID:");
+	p2uuw(devid);
+	p2ustr("\r\n");
+	if ((devid == 0) || (devid == 0x3fff)) {
+		p2ustr("IDCODE invalid\r\n");
+		p12_exit();
+		return;
+	}
+
+	/* ---- bulk erase from config space: program, config, user ID; then EEPROM ---- */
+	p12_cmd(P12_BULKPM);
+	wait_ms(10);
+	p12_cmd(P12_BULKDM);
+	wait_ms(10);
+	p12_exit();
+
+	/* ---- program memory: 16-word rows, skipping blank rows ---- */
+	p12_enter();
+	for (wa = 0; wa < pmend; wa += 16) {
+		for (i = 0; i < 16; i++)
+			if (p12_word(wa + i) != 0x3fff)
+				break;
+		if (i == 16) {
+			p12_inc(16);
+			continue;
+		}
+		for (i = 0; i < 16; i++) {
+			p12_load(P12_LOADPM, p12_word(wa + i));
+			if (i < 15)
+				p12_inc(1);
+		}
+		p12_cmd(P12_BEGIN);
+		wait_ms(3);
+		p12_inc(1);
+	}
+	p12_exit();
+
+	/* ---- verify program memory ---- */
+	p12_enter();
+	for (wa = 0; wa < pmend; wa++) {
+		w = p12_word(wa);
+		v = p12_read(P12_READPM);
+		if ((v != w) && (errs++ < 8))
+			p12_verr("verify error @", wa, v, w);
+		p12_inc(1);
+		if ((wa & 0xff) == 0)
+			P12_IDLE();
+	}
+	p12_exit();
+
+	/* ---- user ID 0x8000-0x8003, config 0x8007-0x8008 ---- */
+	p12_enter();
+	p12_load(P12_LOADCONF, p12_word(0x8000));
+	for (wa = 0x8000; wa < 0x8009; wa++) {
+		if ((wa == 0x8004) || (wa == 0x8005) || (wa == 0x8006)) {
+			p12_inc(1);
+			continue;
+		}
+		w = p12_word(wa);
+		if (wa != 0x8000)
+			p12_load(P12_LOADPM, w);
+		if (w != 0x3fff) {
+			p12_cmd(P12_BEGIN);
+			wait_ms(6);
+		}
+		v = p12_read(P12_READPM);
+		if (wa >= 0x8007) {
+			p2ustr("CONFIG");
+			p2udata('1' + wa - 0x8007);
+			p2udata(':');
+			p2uuw(v);
+			p2ustr("\r\n");
+		}
+		if ((v != w) && (errs++ < 8))
+			p12_verr("verify error @", wa, v, w);
+		p12_inc(1);
+	}
+	p12_exit();
+
+	/* ---- EEPROM (one byte per word in the HEX) ---- */
+	if (p12_has(0x1e000, 0x1e200)) {
+		p12_enter();
+		for (wa = 0; wa < 256; wa++) {
+			w = p12_byte(0x1e000 + wa * 2);
+			if (w != 0xff) {
+				p12_load(P12_LOADDM, w);
+				p12_cmd(P12_BEGIN);
+				wait_ms(6);
+				v = p12_read(P12_READDM) & 0xff;
+				if ((v != w) && (errs++ < 8))
+					p12_verr("verify error EE@", wa, v, w);
+			}
+			p12_inc(1);
+		}
+		p12_exit();
+	}
+
+	p2ustr(errs ? "verify NG\r\n" : "verify ok\r\n");
+}
+
+
 /* ============================================================ */
 /* Main                                                         */
 /* ============================================================ */
@@ -1019,6 +1279,12 @@ void main(void)
 		RPA0R = 0; /* i/o */
 		U1RXR = 0; /* dummy:RA2 */
 		writing = 1;
+
+		/* Protocol by address: PIC12 images live below 0x01000000. */
+		if (writebuf[0].addr < 0x01000000) {
+			pic12_write();
+			continue;
+		}
 
 		/* ---- Enter ICSP ---- */
 		dbg_reg("ICSP: enter", 0);

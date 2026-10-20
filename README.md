@@ -179,7 +179,31 @@ The receiver then rejects every request (HTTP 200 with an empty body)
 as a replay.  After re-flashing a writer that keeps its key, delete the
 server-side `keys/<id>.state` file - or pair a fresh key by barcode.
 
-## ICSP protocol
+## PIC12F1822 (LVP)
+
+All versions also program a PIC12F1822 by low-voltage programming
+(DS41390: "MCHP" key with MCLR low, 6-bit commands).  The protocol is
+chosen from the HEX addresses: an image below 0x01000000 is taken as
+PIC12 (program words at 0x0000-, user ID/config at 0x10000-, EEPROM at
+0x1E000-), anything else as PIC32.  The writer reads the device ID
+(`PIC12 DEVID:`), bulk-erases, writes and verifies program memory in
+16-word rows, writes user ID and config (printed as `CONFIG1:` /
+`CONFIG2:`), writes EEPROM if the HEX has it, and prints `verify ok` or
+`verify NG`.  The LVP bit must stay on in the image's config.
+
+| Writer | PIC12F1822 |
+|---|---|
+| PGC pin | RA1 / ICSPCLK (pin 6) |
+| PGD pin | RA0 / ICSPDAT (pin 7) |
+| MCLR pin | RA3 / MCLR (pin 4) |
+
+With this wiring the PIC12's EUSART (TX=RA0, RX=RA1) also reaches the
+host through the writer after programming.
+
+A record may also start with `;` instead of `:`.  A writer acts only on
+`:` and passes other text to its target, so a HEX for a writer behind
+another writer can be sent through it with `:` replaced by `;`.
+
 
 Uses the 2-wire Enhanced ICSP defined in DS60001145
 (PIC32 Flash Programming Specification), 4-phase clock mode,
