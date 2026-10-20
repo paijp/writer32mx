@@ -861,6 +861,7 @@ static void rsproc()
 	case 0:
 		break;
 	case 1:
+		addrh = 0;	/* the next file starts with no extended address */
 		for (i = 0; i < writebufwsize; i++) {
 			wp = writebuf + i;
 			while (wp->size < BLOCKSIZE)

@@ -1488,6 +1488,7 @@ static void rsproc(void)
 	case 0:
 		break;
 	case 1:
+		addrh = 0;	/* the next file starts with no extended address */
 		writeflash(1);
 		linewpos = -1;
 		return;

@@ -1662,6 +1662,7 @@ static void rsproc(void)
 	case 0:
 		break;
 	case 1:
+		addrh = 0;	/* the next file starts with no extended address */
 		/* Protocol by address: PIC12 images live below 0x01000000. */
 		if ((!writing) && (writebufwsize > 0) && (writebuf[0].addr < 0x01000000))
 			pic12_run();
