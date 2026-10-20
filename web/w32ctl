@@ -62,6 +62,10 @@ def ensure_server():
     time.sleep(1)
 
 
+REMIND = ("reminder: the user may only be looking at the page (Android, foreground). "
+          "Before ending a turn run `w32ctl wait \"<summary>\"`; when finished, `w32ctl close \"<summary>\"`.")
+
+
 def main(a):
     # --tx TEXT anywhere: send TEXT to the target 1 s after it starts
     # (escapes like \\r\\n are interpreted).
@@ -83,6 +87,7 @@ def main(a):
         os.umask(old)
         ensure_server()
         print(URL + t)
+        print(REMIND, file=sys.stderr)
         return 0
     t, d = cur()
     c = load(d)
@@ -129,7 +134,7 @@ def main(a):
                 for line in open(p):
                     ev = json.loads(line)["ev"]
                     if ev.get("id") == jid and ev.get("what") in ("job-done", "job-failed"):
-                        print(json.dumps(ev, ensure_ascii=False)); return 0
+                        print(json.dumps(ev, ensure_ascii=False)); print(REMIND, file=sys.stderr); return 0
             time.sleep(1)
         print("still running" if jid else "no job"); return 1
     elif cmd == "log":

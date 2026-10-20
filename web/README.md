@@ -83,6 +83,12 @@ cd /srv/writer32mx && ./w32ctl flash img/foo.hex 8 --tx 'hello\r\n' && ./w32ctl 
 
 ### Session flow
 
+**Rule for Claude:** the user may be watching only this page (e.g. Android
+with the browser in the foreground). Every time Claude stops for the user,
+it runs `w32ctl wait "<summary>"` first, and `w32ctl close "<summary>"`
+when done; `w32ctl new` and `jobwait` print a reminder. See ../CLAUDE.md.
+
+
 1. `w32ctl new 30` prints the URL. When Claude hands it out, it should end
    its turn right after showing it (the Claude app shows a turn's text only
    when the turn ends) and come back via a scheduled check-in or the user's
