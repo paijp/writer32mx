@@ -1305,9 +1305,7 @@ static void rsproc(void)
 	if (u2prpos >= BUFFERSIZE)
 		u2prpos = 0;
 
-	/* ';' also starts a record, so a HEX for this writer can pass through
-	 * another writer (which only acts on ':') with ':' replaced by ';'. */
-	if ((c == ':') || (c == ';')) {
+	if (c == ':') {
 		linewpos = 0;
 		upper = -1;
 		linesum = 0;

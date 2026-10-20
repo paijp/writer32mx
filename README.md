@@ -200,10 +200,6 @@ PIC12 (program words at 0x0000-, user ID/config at 0x10000-, EEPROM at
 With this wiring the PIC12's EUSART (TX=RA0, RX=RA1) also reaches the
 host through the writer after programming.
 
-A record may also start with `;` instead of `:`.  A writer acts only on
-`:` and passes other text to its target, so a HEX for a writer behind
-another writer can be sent through it with `:` replaced by `;`.
-
 
 Uses the 2-wire Enhanced ICSP defined in DS60001145
 (PIC32 Flash Programming Specification), 4-phase clock mode,
