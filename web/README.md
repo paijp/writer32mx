@@ -17,8 +17,17 @@ The page must be served over HTTPS (or `http://localhost`).
 
 ## Standalone
 
-Serve `index.html` and `app.js` from any static host (or `python3 -m
-http.server` and open `http://localhost:8000/`), then:
+The whole page is one file, `writer32mx.html` (script and style inline,
+nothing loaded from elsewhere).  Open it from any static host, or download
+it and open it from disk in Chrome / Edge with no network (pages opened
+from `file://` may use Web Serial / WebUSB):
+
+Download: https://github.com/paijp/writer32mx/raw/main/web/writer32mx.html
+
+On Android, Chrome generally cannot open a downloaded HTML file from
+storage, so use a hosted copy there.
+
+Then:
 
 1. 「ライターに接続」 and pick `cdc0008`. Chrome remembers the permission,
    so later loads connect by themselves.
@@ -31,19 +40,6 @@ http.server` and open `http://localhost:8000/`), then:
    for a HEX record.
 4. 「ログ保存」 saves everything received.
 
-## Offline (one file)
-
-`writer32mx.html` is `index.html` with `app.js` inlined: download it and
-open it from disk in Chrome / Edge, no network needed (pages opened from
-`file://` may use Web Serial / WebUSB).  It works like the standalone
-page.  Regenerate it with `python3 make-offline.py` after changing
-`index.html` or `app.js`.
-
-Download: https://github.com/paijp/writer32mx/raw/main/web/writer32mx.html
-
-On Android, Chrome generally cannot open a downloaded HTML file from
-storage, so use the hosted page there.
-
 ## Relay mode (driven from a server, e.g. by Claude)
 
 Opened as `https://<host>/writer32mx/#t=<token>`, the page hides the manual
@@ -55,12 +51,12 @@ only keeps the tab open.
 
 | File | Runs where | What it is |
 |---|---|---|
-| `index.html`, `app.js` | browser | the page (public; works without a token) |
+| `writer32mx.html` | browser | the page (public; works without a token) |
 | `server.py` | server, `python:3.13-slim` in podman, stdlib only | relay: sessions, jobs, log/event upload, file download |
 | `w32ctl` | server, as root | mint sessions, post jobs, read logs |
 | `nginx.conf` | server nginx | the `location /writer32mx/` block |
 
-Setup: put `index.html`, `app.js`, `server.py` in `/srv/writer32mx/app/`,
+Setup: put `writer32mx.html` and `server.py` in `/srv/writer32mx/app/`,
 `w32ctl` in `/srv/writer32mx/` (mode 700), add the nginx block, and set
 `W32_URL` (e.g. `https://example.com/writer32mx/`) for `w32ctl`. `W32_DATA`,
 `W32_PORT` (5311) and server.py's `W32_PREFIX` (`/writer32mx`) can be
@@ -78,7 +74,7 @@ w32ctl log [bytes]                     tail of the session's log (log.bin)
 w32ctl events [n]                      last n events the page reported (JSON lines)
 w32ctl status                          control.json, whether the page was opened, time left
 w32ctl askreload [text]                ask the user to reload by hand
-w32ctl reload                          make open pages reload (after editing app.js)
+w32ctl reload                          make open pages reload (after editing writer32mx.html)
 (reset and flash take --tx TEXT, escapes like \r\n allowed: sent 1 s after the target starts)
 ```
 
@@ -123,7 +119,8 @@ when done; `w32ctl new` and `jobwait` print a reminder. See ../CLAUDE.md.
   expire (default 60 min); `close` cuts them to 10 min, read-only.
 - Sessions are stored under `sha256(token)`. The server exits a minute after
   the last session expires; the container is `--rm`.
-- CSP: scripts from self only, connect to self only, no framing.
+- CSP: only the page's own inline script (allowed by its sha256, computed
+  by server.py when serving), connect to self only, no framing.
 
 ## Tested
 

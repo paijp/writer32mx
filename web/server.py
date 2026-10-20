@@ -5,8 +5,9 @@ through writer32mxcdc, driven from the server side (w32ctl), e.g. by Claude.
 The page has no login. Each session is a random token that only the VPS can
 mint (w32ctl new), handed to the user as https://<host>/writer32mx/#t=<token>.
 The token sits after '#', so it never reaches nginx's access log or a Referer;
-the page sends it in a header. The page itself (index.html, app.js) is public
-and also works on its own without a token; only the api/ calls need one.
+the page sends it in a header. The page itself (writer32mx.html, one file with
+its script inline) is public and also works on its own without a token; only
+the api/ calls need one.
 
 Per session, under DATA/s/<sha256(token)>/:
   control.json  written by w32ctl: state, message, expires, job
@@ -14,7 +15,7 @@ Per session, under DATA/s/<sha256(token)>/:
   log.bin       appended by the page: raw serial output
   files/        what the page may download (the .hex to write)
 """
-import hashlib, json, os, re, time
+import base64, hashlib, json, os, re, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 DATA = os.environ.get("W32_DATA", "/srv/writer32mx")
@@ -23,8 +24,17 @@ P = os.environ.get("W32_PREFIX", "/writer32mx")
 MAXBODY = 256 * 1024
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
 
-CSP = ("default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
+CSP = ("default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; "
        "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+def page():
+    """The page and a CSP that allows exactly its inline script (by hash)."""
+    with open(os.path.join(DATA, "app", "writer32mx.html"), "rb") as f:
+        html = f.read()
+    m = re.search(rb"<script>(.*?)</script>", html, re.S)
+    h = base64.b64encode(hashlib.sha256(m.group(1)).digest()).decode()
+    return html, CSP.replace("script-src 'none'", "script-src 'sha256-%s'" % h)
 
 
 def session_dir(token):
@@ -47,7 +57,7 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):
         pass  # no access log: the path never carries the token, but keep it quiet
 
-    def send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
+    def send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None, csp=CSP):
         if isinstance(body, str):
             body = body.encode()
         self.send_response(code)
@@ -56,7 +66,7 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", CSP)
+        self.send_header("Content-Security-Policy", csp)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -79,11 +89,8 @@ class H(BaseHTTPRequestHandler):
         if p in (P, P + "/"):
             if p == P:
                 return self.send(301, "", extra={"Location": P + "/"})
-            with open(os.path.join(DATA, "app", "index.html"), "rb") as f:
-                return self.send(200, f.read(), "text/html; charset=utf-8")
-        if p == P + "/app.js":
-            with open(os.path.join(DATA, "app", "app.js"), "rb") as f:
-                return self.send(200, f.read(), "text/javascript; charset=utf-8")
+            html, csp = page()
+            return self.send(200, html, "text/html; charset=utf-8", csp=csp)
         if p == P + "/api/poll":
             d = self.authed(closed_ok=True)
             if not d:
