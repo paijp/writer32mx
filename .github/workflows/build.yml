@@ -15,6 +15,7 @@ jobs:
       targets: >-
         writer32mxuart.hex
         writer32mxcdc.hex
+        writer32mxcdc2.hex
         writer32mxcdcquad.hex
         writer32mx-wroom-c20p1305-barcodeuart.hex
         writer32mx-wroom-c20p1305-barcodehid.hex

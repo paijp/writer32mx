@@ -9,6 +9,7 @@ Both the writer and the target use PIC32MX270F256B.
 |---|---|
 | `writer32mxuart.c` | Receives Intel HEX via UART2 and programs the target |
 | `writer32mxcdc.c` | Receives Intel HEX via USB CDC and programs the target |
+| `writer32mxcdc2.c` | USB CDC version for a board with a 16 MHz crystal, target on RB0 (PGC/U2TX), RB1 (PGD/U2RX), RB2 (MCLR) |
 | `writer32mxcdcquad.c` | USB CDC version for 4 targets (see below) |
 | `writer32mx-wroom-c20p1305-barcodeuart.c` | Receives Intel HEX over Wi-Fi (ESP-WROOM-02 + ChaCha20-Poly1305); pairing barcodes from a 9600 bps serial reader |
 | `writer32mx-wroom-c20p1305-barcodehid.c` | Same, pairing barcodes from a USB-HID reader in keyboard mode |
