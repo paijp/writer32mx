@@ -13,7 +13,7 @@ shell access to the server).
   w32ctl jobwait [sec]       wait for the current job to finish (default 50)
   w32ctl log [bytes]         tail of the serial log (default 4000)
   w32ctl askreload [text]    ask the user to reload (hidden once they have)
-  w32ctl reload              make open pages reload (after changing writer32mx.html)
+  w32ctl reload              make open pages reload (after changing app.js)
   w32ctl events [n]          the page's last n events
   w32ctl status              current session's control and whether it was opened
 
