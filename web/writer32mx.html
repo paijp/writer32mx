@@ -197,6 +197,9 @@
 			if (i.alternate.interfaceClass === 0x02) ctl = i.interfaceNumber;
 		});
 		if (ifn === null) throw new Error("CDC data interface not found");
+		// Android 16 refuses the data interface unless the control
+		// interface is claimed first; elsewhere this is harmless.
+		try { await d.claimInterface(ctl); } catch (e) {}
 		await d.claimInterface(ifn);
 		// SET_CONTROL_LINE_STATE (DTR|RTS); the writer only acknowledges it.
 		try {
@@ -419,7 +422,14 @@
 	}
 
 	// --- start: reconnect to a port permitted earlier, without a prompt ---
-	report({ what: "loaded", ua: navigator.userAgent, serial: !!navigator.serial, webusb: !!navigator.usb });
+	// The user agent string is reduced ("Android 10; K"), so ask for the
+	// real platform version and model where the browser offers them.
+	(navigator.userAgentData && navigator.userAgentData.getHighEntropyValues
+		? navigator.userAgentData.getHighEntropyValues(["platform", "platformVersion", "model"]).catch(function () { return {}; })
+		: Promise.resolve({})).then(function (h) {
+		report({ what: "loaded", ua: navigator.userAgent, os: h.platform, osVersion: h.platformVersion, model: h.model,
+			serial: !!navigator.serial, webusb: !!navigator.usb });
+	});
 	if (!navigator.serial && !navigator.usb) {
 		usbP.textContent = "このブラウザは Web Serial / WebUSB に対応していません (Chrome か Edge を使ってください)。";
 		conn.disabled = true;

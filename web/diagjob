@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""diagjob '<json list of ops>' [wait-sec]: post a diag job to the current
+writer32mx session and print the page's results for it."""
+import hashlib, json, os, sys, time
+DATA = os.environ.get("W32_DATA", "/srv/writer32mx")
+t = open(os.path.join(DATA, "current")).read().strip()
+d = os.path.join(DATA, "s", hashlib.sha256(t.encode()).hexdigest())
+cp = os.path.join(d, "control.json")
+c = json.load(open(cp)); c["seq"] = c.get("seq", 0) + 1
+jid = "d%d" % c["seq"]
+c["job"] = {"id": jid, "kind": "diag", "ops": json.loads(sys.argv[1])}
+open(cp + ".tmp", "w").write(json.dumps(c, ensure_ascii=False)); os.replace(cp + ".tmp", cp)
+end = time.time() + (float(sys.argv[2]) if len(sys.argv) > 2 else 30)
+ep = os.path.join(d, "events.jsonl")
+while time.time() < end:
+    out = []
+    if os.path.exists(ep):
+        for line in open(ep):
+            ev = json.loads(line)["ev"]
+            if ev.get("id") == jid: out.append(ev)
+    if any(e.get("what") == "diag-end" for e in out):
+        for e in out: print(json.dumps(e, ensure_ascii=False))
+        sys.exit(0)
+    time.sleep(1)
+print("timeout (page not running the job?)"); sys.exit(1)

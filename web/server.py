@@ -84,6 +84,14 @@ class H(BaseHTTPRequestHandler):
         if p == P + "/app.js":
             with open(os.path.join(DATA, "app", "app.js"), "rb") as f:
                 return self.send(200, f.read(), "text/javascript; charset=utf-8")
+        if p in (P + "/diag", P + "/diag/"):
+            if p == P + "/diag":
+                return self.send(301, "", extra={"Location": P + "/diag/"})
+            with open(os.path.join(DATA, "app", "diag.html"), "rb") as f:
+                return self.send(200, f.read(), "text/html; charset=utf-8")
+        if p == P + "/diag/diag.js":
+            with open(os.path.join(DATA, "app", "diag.js"), "rb") as f:
+                return self.send(200, f.read(), "text/javascript; charset=utf-8")
         if p == P + "/api/poll":
             d = self.authed(closed_ok=True)
             if not d:

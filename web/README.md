@@ -86,8 +86,8 @@ only keeps the tab open.
 | `w32ctl` | server, as root | mint sessions, post jobs, read logs |
 | `nginx.conf` | server nginx | the `location /writer32mx/` block |
 
-Setup: put `index.html`, `app.js`, `server.py` in `/srv/writer32mx/app/`,
-`w32ctl` in `/srv/writer32mx/` (mode 700), add the nginx block, and set
+Setup: put `index.html`, `app.js`, `diag.html`, `diag.js`, `server.py` in `/srv/writer32mx/app/`,
+`w32ctl` and `diagjob` in `/srv/writer32mx/` (mode 700), add the nginx block, and set
 `W32_URL` (e.g. `https://example.com/writer32mx/`) for `w32ctl`. `W32_DATA`,
 `W32_PORT` (5311) and server.py's `W32_PREFIX` (`/writer32mx`) can be
 changed the same way.
@@ -120,6 +120,38 @@ Typical loop:
 cd /srv/writer32mx && ./w32ctl flash img/foo.hex 8 --tx 'hello\r\n' && ./w32ctl jobwait 45
 ./w32ctl log 2000
 ```
+
+### USB diagnostics page (diag/)
+
+`https://<host>/writer32mx/diag/#t=<token>` (same session token) runs
+WebUSB / Web Serial steps sent from the server and reports each result,
+for finding out why a browser cannot connect.  The user taps
+「USB デバイスを選ぶ」 (or 「シリアルを選ぶ」) once, since a permission can
+only be granted from a tap; everything after that is driven by
+`diagjob`:
+
+```
+./diagjob '[{"op":"open"},{"op":"claim","n":0},{"op":"claim","n":1},
+            {"op":"out","ep":2,"text":":FF\r\n"},{"op":"in","ep":2,"ms":3000,"loop":true}]'
+```
+
+Operations: `info`, `open`, `close`, `reset`, `forget`, `config`
+(`value`), `claim` / `release` (`n`), `alt` (`n`, `alt`), `ctrlOut` /
+`ctrlIn` (`requestType`, `recipient`, `request`, `value`, `idx`, `data`
+hex / `len`), `out` (`ep`, `text` or `hex`), `in` (`ep`, `len`, `ms`,
+`loop`), `serialOpen` (`baud`), `serialWrite`, `serialRead` (`ms`),
+`serialClose`, `wait` (`ms`).  A failed step stops the job unless it has
+`"cont": true`.  Only these operations exist; nothing from the server is
+run as code.
+
+Found with it: on Android 16 `claimInterface(1)` (the CDC data
+interface) fails with "Unable to claim interface" unless interface 0 is
+claimed first, so app.js now claims the control interface before the
+data interface.
+
+The page's `loaded` event (and diag `info`) also reports `os`,
+`osVersion` and `model` from `navigator.userAgentData`, since the user
+agent string always says "Android 10; K".
 
 ### Session flow
 
@@ -155,4 +187,5 @@ when done; `w32ctl new` and `jobwait` print a reminder. See ../CLAUDE.md.
 
 With a mock port in headless Chromium: standalone load, relay session,
 flash job (HEX check, wait for `writing`/`run`, `--tx`), reset job, log and
-event upload. Not yet tested on a real writer32mxcdc.
+event upload. On a real writer32mxcdc2 with WebUSB on Android 16 and
+Android 8.1 Chrome.

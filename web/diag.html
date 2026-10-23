@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>USB 診断</title>
+<style>
+body { font-family: sans-serif; margin: 16px; background: #fff; color: #111; }
+button { font-size: 1.1em; padding: 10px 14px; margin: 4px 4px 4px 0; }
+#msg { padding: 8px; margin: 8px 0; min-height: 1.2em; }
+#msg.hl { background: #ffe066; }
+#log { white-space: pre-wrap; word-break: break-all; font-size: 12px; background: #f4f4f4; padding: 8px; height: 60vh; overflow-y: auto; }
+@media (prefers-color-scheme: dark) {
+	body { background: #111; color: #eee; }
+	#log { background: #222; }
+	#msg.hl { background: #806600; }
+}
+</style>
+</head>
+<body>
+<h3>USB 診断 (writer32mx)</h3>
+<p>このページを開いたままにしてください。Claude が USB の操作を順に試します。最初に画面を一度タップしてください。</p>
+<div><button id="pickUsb">USB デバイスを選ぶ</button><button id="pickSerial">シリアルを選ぶ</button></div>
+<div id="msg"></div>
+<div id="log"></div>
+<script src="diag.js"></script>
+</body>
+</html>
