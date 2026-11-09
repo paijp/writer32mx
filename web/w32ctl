@@ -81,7 +81,7 @@ def main(a):
         d = os.path.join(DATA, "s", hashlib.sha256(t.encode()).hexdigest())
         os.makedirs(os.path.join(d, "files"), mode=0o700)
         save(d, {"state": "open", "expires": time.time() + mins * 60,
-                 "message": "Claude と接続しました。", "job": None})
+                 "message": "Connected to Claude.", "job": None})
         old = os.umask(0o077)
         open(os.path.join(DATA, "current"), "w").write(t)
         os.umask(old)
@@ -96,12 +96,12 @@ def main(a):
         c["message"] = " ".join(a[1:]); c["attention"] = False; save(d, c)
     elif cmd == "wait":
         c.pop("reloadAsk", None)
-        c["message"] = " ".join(a[1:]) or "Claude を見てください。"
+        c["message"] = " ".join(a[1:]) or "Please look at Claude."
         c["attention"] = True; save(d, c)
     elif cmd == "close":
         c.pop("reloadAsk", None)
         c["state"] = "closed"
-        c["message"] = " ".join(a[1:]) or "完了しました。このタブを閉じて Claude に戻ってください。"
+        c["message"] = " ".join(a[1:]) or "Finished. Close this tab and go back to Claude."
         c["expires"] = min(c["expires"], time.time() + 600)
         save(d, c)
     elif cmd in ("reset", "run"):
@@ -109,7 +109,7 @@ def main(a):
         c["job"] = {"id": "j%d" % (c.get("seq", 0) + 1), "kind": "reset",
                     "seconds": float(a[1]) if len(a) > 1 else 10}
         if tx is not None: c["job"]["tx"] = tx
-        c["message"] = ":FF を送ってターゲットをリセットし、ログを受信します。"
+        c["message"] = "Sending :FF to reset the target, then reading the log."
         c["attention"] = False
         save(d, c)
         print(c["job"]["id"])
@@ -121,7 +121,7 @@ def main(a):
         c["job"] = {"id": "j%d" % (c.get("seq", 0) + 1), "kind": "flash", "file": name,
                     "seconds": float(a[2]) if len(a) > 2 else 10}
         if tx is not None: c["job"]["tx"] = tx
-        c["message"] = name + " を書き込み、実行してログを受信します。"
+        c["message"] = name + ": writing, running and reading the log."
         c["attention"] = False
         save(d, c)
         print(c["job"]["id"])
@@ -148,7 +148,7 @@ def main(a):
         # Ask the user to reload by hand (for a page too old to obey "reload").
         # The page shows this only if it was loaded before the request.
         c["reloadAsk"] = {"seq": c.get("seq", 0) + 1,
-                          "text": " ".join(a[1:]) or "このページを一度リロードしてください（自動で再接続します）。"}
+                          "text": " ".join(a[1:]) or "Please reload this page once (it reconnects by itself)."}
         save(d, c)
     elif cmd == "reload":
         c["rev"] = c.get("rev", 0) + 1; save(d, c)

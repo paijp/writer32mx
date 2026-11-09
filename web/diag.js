@@ -59,7 +59,7 @@
 			var l = await navigator.usb.getDevices();
 			dev = l[o.index || 0] || null;
 		}
-		if (!dev) throw new Error("no permitted USB device (tap 「USB デバイスを選ぶ」)");
+		if (!dev) throw new Error("no permitted USB device (tap Choose USB device)");
 		return dev;
 	}
 
@@ -115,7 +115,7 @@
 		serialOpen: async function (o) {
 			var l = await navigator.serial.getPorts();
 			sp = l[o.index || 0];
-			if (!sp) throw new Error("no permitted serial port (tap 「シリアルを選ぶ」)");
+			if (!sp) throw new Error("no permitted serial port (tap Choose serial port)");
 			await sp.open({ baudRate: o.baud || 115200 });
 			return sp.getInfo();
 		},
@@ -180,9 +180,9 @@
 
 	var lastJob = null, started = false, lastMsg = null;
 	function poll() {
-		if (!T) { msgEl.textContent = "トークンがありません"; return; }
+		if (!T) { msgEl.textContent = "No token"; return; }
 		api("poll").then(function (r) { return r.ok ? r.json() : null; }).then(function (c) {
-			if (!c) { msgEl.textContent = "セッションが無効です"; return; }
+			if (!c) { msgEl.textContent = "The session is not valid"; return; }
 			if (c.message !== lastMsg) {
 				lastMsg = c.message; msgEl.textContent = c.message || "";
 				msgEl.className = c.attention ? "hl" : "";

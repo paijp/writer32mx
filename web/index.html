@@ -1,22 +1,47 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>writer32mx</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #fff; color: #222; }
-  @media (prefers-color-scheme: dark) { body { background: #111; color: #ddd; } }
-  #msg { font-size: 1.15em; margin: 0 0 12px; }
-  button, input { font-size: 1em; }
-  .row { margin: 8px 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  [hidden] { display: none !important; }
+  /* Colours: A (plain) with a green Write & run and a terminal-style log. */
+  :root { --bg: #fff; --fg: #1f2328; --mute: #59636e; --link: #0969da; --line: #d1d9e0; --sub: #f6f8fa;
+    --alt: #9a6700; --go: #1f7a4d; --go-fg: #fff; --scr: #0f1712; --scr-fg: #8ff0b4; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --fg: #e6edf3; --mute: #9198a1; --link: #4493f8;
+    --line: #3d444d; --sub: #151b23; --alt: #d29922; --go: #3fbf7f; --go-fg: #0b130e; --scr: #070c09; color-scheme: dark; } }
+  body { font: 14px system-ui, sans-serif; margin: 0; padding: 16px; background: var(--bg); color: var(--fg); }
+  a { color: var(--link); }
+  h1 { font-size: 1.2em; margin: 0 0 4px; }
+  #msg { font-size: 1.1em; margin: 0 0 12px; }
+  button, input, select { font: inherit; }
+  button { padding: 7px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--sub); color: var(--fg); cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.pri { background: var(--go); border-color: var(--go); color: var(--go-fg); font-weight: 600; }
+  button.alt { color: var(--alt); }
+  input[type=text] { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); flex: 1; min-width: 0; }
+  .blk, #manual { max-width: 26rem; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .after { margin-bottom: 11px; }
+  .grow { flex: 1; min-width: 0; color: var(--mute); }
+  #chosen { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trio button { flex: 1; padding-inline: 6px; white-space: nowrap; }
+  .pick { position: relative; }
+  .pick select { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
   pre { font-size: 12px; white-space: pre-wrap; word-break: break-all; }
-  #log { max-height: 50vh; overflow: auto; border: 1px solid #8884; padding: 6px; min-height: 4em; }
+  #log { margin: 12px 0 8px; max-height: 50vh; min-height: 6em; overflow: auto; padding: 10px; border-radius: 6px;
+    background: var(--scr); color: var(--scr-fg); font-family: ui-monospace, Menlo, monospace; }
+  .stack { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  .end { justify-content: flex-end; }
+  #ev { color: var(--mute); }
+  .note { font-size: .8em; color: var(--mute); margin-top: 16px; }
 </style>
 </head>
 <body>
-<p id="msg">読み込み中…</p>
+<h1>writer32mx</h1>
+<p id="msg">Loading…</p>
 <div id="app"></div>
 <script src="app.js"></script>
 </body>

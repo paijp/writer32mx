@@ -33,26 +33,39 @@
 	var msg = document.getElementById("msg");
 	var app = document.getElementById("app");
 	app.innerHTML =
-		'<div class="row"><button id="conn" style="padding:10px 16px">ライターに接続</button>' +
-		'<button id="connusb" hidden>WebUSB で接続</button></div>' +
-		'<p id="usb" style="margin:8px 0"></p>' +
-		// The manual controls are hidden in relay mode: Claude drives the board.
+		// One block of controls, at most 26rem wide; the log below takes the width.
+		'<div class="blk"><div class="row after"><span id="usb" class="grow"></span>' +
+		// Two ways in, stacked: Web Serial (desktop) and WebUSB (Android).
+		'<span class="stack"><button id="conn">Connect writer</button>' +
+		'<button id="connusb" hidden>Connect via WebUSB</button></span></div>' +
+		// The manual controls are hidden in relay mode: the server drives the board.
 		'<div id="manual"' + (T ? ' hidden' : '') + '>' +
-		'<div class="row"><input type="file" id="file" accept=".hex,.ihx,.txt">' +
-		'<button id="write" disabled>書き込み</button><button id="reset" disabled>リセット (:FF)</button></div>' +
-		'<div class="row"><input id="tx" placeholder="ターゲットへ送る文字列" style="flex:1;min-width:10em">' +
-		'<button id="send" disabled>送信</button></div>' +
-		'<div class="row"><button id="clear">ログ消去</button><button id="save">ログ保存</button></div></div>' +
+		'<div class="row"><button id="pickfile">Choose file</button>' +
+		'<input type="file" id="file" hidden accept=".hex,.ihx,.txt">' +
+		'<span id="chosen" class="grow">No file chosen</span>' +
+		// The sample list: the phone's own picker, opened from the ▼ button.
+		'<span class="pick" id="samplerow" hidden><button tabindex="-1" aria-hidden="true">&#9660;</button>' +
+		'<select id="sample" aria-label="Samples"><option value="">Choose a sample…</option></select></span></div>' +
+		'<div class="row end after"><button id="reset" class="alt" disabled>Reset (:FF)</button>' +
+		'<button id="write" class="pri" disabled>Write</button></div>' +
+		'<div class="row"><input type="text" id="tx" placeholder="Text to send to the target">' +
+		'<button id="send" disabled>Send</button></div></div></div>' +
 		'<pre id="log"></pre>' +
-		(T ? '<p id="tap" style="margin:8px 0;font-size:.9em;opacity:.8">画面をどこか一度タップすると、終了時などに振動でお知らせします。</p>' : '') +
-		'<pre id="ev" style="opacity:.75"></pre>';
+		'<div class="row end"><button id="clear">Clear</button><button id="save">Save</button></div>' +
+		(T ? '<p id="tap" style="font-size:.9em">Tap anywhere on the page once to get vibration alerts (when finished, etc.).</p>' : '') +
+		'<pre id="ev"></pre>';
 	function $(id) { return document.getElementById(id); }
 	var conn = $("conn"), connUsb = $("connusb"), usbP = $("usb"), logP = $("log"), evP = $("ev");
 	var btnWrite = $("write"), btnReset = $("reset"), btnSend = $("send");
-	msg.textContent = T ? "サーバーに接続しています…" : "writer32mxcdc をブラウザから使います（Chrome / Edge）。";
+	// The standalone greeting, with the link to the README (wiring, notes).
+	function standaloneMsg() {
+		msg.innerHTML = 'Use writer32mxcdc from the browser (Chrome / Edge). ' +
+			'<a href="https://github.com/paijp/writer32mx#readme" target="_blank" rel="noopener">Before you use</a>';
+	}
+	if (T) msg.textContent = "Connecting to the server…"; else standaloneMsg();
 	if (T) document.addEventListener("pointerdown", function () {
 		var t = $("tap");
-		if (t) t.textContent = "振動通知が有効になりました。";
+		if (t) t.textContent = "Vibration alerts are on.";
 	}, { once: true });
 
 	function api(path, body) {
@@ -121,8 +134,8 @@
 	var port = null;        // { kind, write(u8): Promise, close() }
 	function connected(p, how) {
 		port = p;
-		usbP.textContent = "接続しました (" + p.kind + ", " + how + ")";
-		conn.textContent = "接続済み"; conn.disabled = true; connUsb.hidden = true;
+		usbP.textContent = "Connected (" + p.kind + ", " + how + ")";
+		conn.textContent = "Connected"; conn.disabled = true; connUsb.hidden = true;
 		btnWrite.disabled = btnReset.disabled = btnSend.disabled = false;
 		report({ what: "claimed", kind: p.kind, how: how });
 		if (T) poll();
@@ -130,15 +143,15 @@
 	function lost(why) {
 		if (!port) return;
 		port = null;
-		usbP.textContent = "ライターが外れました" + (why ? " (" + why + ")" : "") + "。";
-		conn.textContent = "ライターに接続"; conn.disabled = false;
+		usbP.textContent = "Writer disconnected" + (why ? " (" + why + ")" : "") + ".";
+		conn.textContent = "Connect writer"; conn.disabled = false;
 		connUsb.hidden = !(navigator.serial && navigator.usb);
 		btnWrite.disabled = btnReset.disabled = btnSend.disabled = true;
 		report({ what: "disconnected", why: why || "" });
 	}
 
 	async function openSerial(sp, how) {
-		usbP.textContent = "接続中… (Web Serial, " + how + ")";
+		usbP.textContent = "Connecting… (Web Serial, " + how + ")";
 		await sp.open({ baudRate: 115200, bufferSize: 65536 });
 		try { await sp.setSignals({ dataTerminalReady: true, requestToSend: true }); } catch (e) {}
 		var reader = sp.readable.getReader(), writer = sp.writable.getWriter(), closing = false;
@@ -166,7 +179,7 @@
 	}
 
 	async function openUsb(d, how) {
-		usbP.textContent = "接続中… (WebUSB, " + how + ")";
+		usbP.textContent = "Connecting… (WebUSB, " + how + ")";
 		await d.open();
 		if (!d.configuration) await d.selectConfiguration(1);
 		// The data interface is the one with class 0x0A (interface 1 here).
@@ -207,7 +220,7 @@
 	}
 
 	function fail(e, what) {
-		usbP.textContent = "接続できません: " + e;
+		usbP.textContent = "Cannot connect: " + e;
 		report({ what: what || "open-failed", error: String(e) });
 	}
 	var FILTER = [{ usbVendorId: VID, usbProductId: PID }];
@@ -255,9 +268,9 @@
 		var b = enc.encode(text.replace(/\r?\n/g, "\n")), t = Date.now();
 		for (var o = 0; o < b.length; o += 4096) {
 			await port.write(b.slice(o, o + 4096));
-			usbP.textContent = "送信中 " + Math.round(Math.min(b.length, o + 4096) * 100 / b.length) + "%";
+			usbP.textContent = "Sending " + Math.round(Math.min(b.length, o + 4096) * 100 / b.length) + "%";
 		}
-		usbP.textContent = "書き込み完了を待っています…";
+		usbP.textContent = "Waiting for the writer to finish…";
 		await done;
 		report({ what: "written", ms: Date.now() - t });
 	}
@@ -267,15 +280,15 @@
 	async function manual(f) {
 		if (busy || !port) return;
 		busy = true; btnWrite.disabled = btnReset.disabled = true;
-		try { await f(); } catch (e) { usbP.textContent = "失敗: " + e; report({ what: "manual-failed", error: String(e) }); }
+		try { await f(); } catch (e) { usbP.textContent = "Failed: " + e; report({ what: "manual-failed", error: String(e) }); }
 		busy = false; if (port) btnWrite.disabled = btnReset.disabled = false;
 	}
 	btnWrite.onclick = function () {
-		var f = $("file").files[0];
-		if (!f) { usbP.textContent = "書き込む .hex ファイルを選んでください。"; return; }
 		manual(async function () {
-			await writeHex(await f.text(), f.name);
-			usbP.textContent = "書き込みました: " + f.name;
+			var img = await pickedImage();
+			if (!img) { usbP.textContent = "Choose a .hex file or a sample (\u25bc) first."; return; }
+			await writeHex(img.text, img.name);
+			usbP.textContent = "Written: " + img.name;
 		});
 	};
 	btnReset.onclick = function () { manual(function () { return resetTarget(); }); };
@@ -283,12 +296,51 @@
 		if (!port) return;
 		var s = $("tx").value + "\n";
 		// ':' at the start of a line would be taken for a HEX record.
-		if (/(^|\n):/.test(s)) { usbP.textContent = "行頭の ':' は HEX レコードとして扱われるため送信しません。"; return; }
-		port.write(enc.encode(s)).catch(function (e) { usbP.textContent = "送信失敗: " + e; });
+		if (/(^|\n):/.test(s)) { usbP.textContent = "Not sent: a line starting with ':' would be taken for a HEX record."; return; }
+		port.write(enc.encode(s)).catch(function (e) { usbP.textContent = "Send failed: " + e; });
 		$("tx").value = "";
 	};
 	$("tx").addEventListener("keydown", function (e) { if (e.key === "Enter") btnSend.onclick(); });
 	$("clear").onclick = function () { logP.textContent = ""; };
+	// One choice at a time: a file or a sample, named next to the buttons.
+	async function pickedImage() {
+		var f = $("file").files[0];
+		if (f) return { name: f.name, text: await f.text() };
+		var s = $("sample").value;
+		if (s) {
+			var r = await fetch("samples/" + encodeURIComponent(s), { cache: "no-store" });
+			if (!r.ok) throw new Error("could not fetch the sample " + s);
+			return { name: s, text: await r.text() };
+		}
+		return null;
+	}
+	$("pickfile").onclick = function () { $("file").click(); };
+	$("sample").onchange = function () {
+		if (!$("sample").value) return;
+		$("file").value = "";
+		$("chosen").textContent = $("sample").value + " (sample)";
+		$("chosen").title = $("sample").selectedOptions[0].textContent;
+	};
+	$("file").onchange = function () {
+		var f = $("file").files[0];
+		if (!f) return;
+		$("sample").value = "";
+		$("chosen").textContent = f.name; $("chosen").title = "";
+	};
+	// Samples: a list next to the page (samples/index.json), when hosted with one.
+	function loadSamples() {
+		fetch("samples/index.json", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; })
+		.then(function (list) {
+			if (!list || !list.length) return;
+			list.forEach(function (s) {
+				var o = document.createElement("option");
+				o.value = s.file; o.textContent = s.title || s.file;
+				$("sample").appendChild(o);
+			});
+			$("samplerow").hidden = false;
+		}).catch(function () {});
+	}
+	if (!T) loadSamples();
 	$("save").onclick = function () {
 		var a = document.createElement("a");
 		a.href = URL.createObjectURL(new Blob(logAll, { type: "application/octet-stream" }));
@@ -302,15 +354,28 @@
 	function poll() {
 		if (!T || closed) return;
 		api("poll").then(function (r) { return r.ok ? r.json() : null; }).then(function (c) {
-			if (!c) { msg.textContent = "このセッションは終了したか、期限が切れています。"; closed = true; return; }
+			if (!c) {
+				// The token is unknown or expired - typically one this tab kept
+				// from an earlier session (it is remembered per tab). Forget it
+				// and carry on as the standalone page.
+				closed = true;
+				try { sessionStorage.removeItem("w32.t"); } catch (e) {}
+				T = null; outq = [];
+				$("manual").hidden = false;
+				var tp = $("tap"); if (tp) tp.remove();
+				msg.style.cssText = ""; document.title = "writer32mx";
+				standaloneMsg();
+				loadSamples();
+				return;
+			}
 			var done = c.state !== "open";
 			if (firstSeq === null) firstSeq = c.seq || 0;
 			if (c.reloadAsk && !done) {
 				if (firstSeq < c.reloadAsk.seq) { c.message = c.reloadAsk.text; c.attention = true; }
 				else {
 					var tapped = navigator.userActivation && navigator.userActivation.hasBeenActive;
-					c.message = tapped ? "リロードを確認しました。処理を待っています。"
-						: "リロードを確認しました。画面を一度タップしてください（振動通知が有効になります）。";
+					c.message = tapped ? "Reloaded. Waiting for the next step."
+						: "Reloaded. Tap the page once (to turn vibration alerts back on).";
 					c.attention = false;
 				}
 			}
@@ -363,16 +428,16 @@
 			if (job.kind === "flash") {
 				var r = await api("file/" + encodeURIComponent(job.file));
 				if (!r.ok) throw new Error("could not fetch " + job.file);
-				usbP.textContent = job.file + " を書き込んでいます…";
+				usbP.textContent = "Writing " + job.file + "…";
 				await writeHex(await r.text(), job.file);
 			} else if (job.kind === "reset" || job.kind === "run") {
-				usbP.textContent = "リセットして実行します…";
+				usbP.textContent = "Resetting the target…";
 				var ran = waitText(/\nrun\r?\n/, 5000);
 				ran.catch(function () {});
 				await resetTarget();
 				await ran;
 			} else throw new Error("unknown job kind " + job.kind);
-			usbP.textContent = "実行中: ログを受信しています (" + (job.seconds || 10) + " 秒)";
+			usbP.textContent = "Running: reading the log (" + (job.seconds || 10) + " s)";
 			var runStart = Date.now(), until = runStart + (job.seconds || 10) * 1000;
 			if (job.tx) {
 				await sleep(job.txDelayMs === undefined ? 1000 : job.txDelayMs);
@@ -384,11 +449,11 @@
 			while (Date.now() < until && port) await sleep(100);
 			await flush();
 			report({ what: "job-done", id: job.id, bytes: logSize - total0, ms: Date.now() - t0 });
-			usbP.textContent = "完了: " + (logSize - total0) + " バイト受信";
+			usbP.textContent = "Done: " + (logSize - total0) + " bytes received";
 		} catch (e) {
 			await flush();
 			report({ what: "job-failed", id: job.id, error: String(e), ms: Date.now() - t0 });
-			usbP.textContent = "失敗: " + e;
+			usbP.textContent = "Failed: " + e;
 		}
 		busy = false;
 		if (port) btnWrite.disabled = btnReset.disabled = false;
@@ -410,7 +475,7 @@
 			serial: !!navigator.serial, webusb: !!navigator.usb });
 	});
 	if (!navigator.serial && !navigator.usb) {
-		usbP.textContent = "このブラウザは Web Serial / WebUSB に対応していません (Chrome か Edge を使ってください)。";
+		usbP.textContent = "This browser has neither Web Serial nor WebUSB (use Chrome or Edge).";
 		conn.disabled = true;
 		return;
 	}
@@ -428,7 +493,7 @@
 			if (d) return openUsb(d, "remembered").then(function () { return true; });
 		});
 	}).then(function (done) {
-		if (!done) usbP.textContent = "「ライターに接続」を押して writer32mx (cdc0008) を選んでください。";
+		if (!done) usbP.textContent = "Press Connect writer and choose writer32mx (cdc0008).";
 	}).catch(function (e) { fail(e); });
 	if (navigator.serial) navigator.serial.addEventListener("disconnect", function (e) { if (port && port.sp === e.target) lost("unplugged"); });
 	if (navigator.usb) navigator.usb.addEventListener("disconnect", function (e) { if (port && port.dev === e.device) lost("unplugged"); });

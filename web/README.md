@@ -8,7 +8,7 @@ Chrome / Edge only (Firefox and Safari have neither API):
 
 - **Web Serial** (desktop Chrome/Edge on Windows, macOS, Linux): the OS CDC
   driver stays in charge; the page opens the port at 115200.
-- **WebUSB** (Chrome on Android, or the "WebUSB で接続" button): the page
+- **WebUSB** (Chrome on Android, or the "Connect via WebUSB" button): the page
   claims the CDC data interface (interface 1, bulk 0x02/0x82) itself. On a
   desktop the OS CDC driver usually holds that interface, so use Web Serial
   there.
@@ -20,16 +20,16 @@ The page must be served over HTTPS (or `http://localhost`).
 Serve `index.html` and `app.js` from any static host (or `python3 -m
 http.server` and open `http://localhost:8000/`), then:
 
-1. 「ライターに接続」 and pick `cdc0008`. Chrome remembers the permission,
+1. **Connect writer** and pick `cdc0008`. Chrome remembers the permission,
    so later loads connect by themselves.
-2. Pick a `.hex` and 「書き込み」. The page checks the records and that the
+2. Pick a `.hex` and **Write**. The page checks the records and that the
    end-of-file record is present (the writer writes the last block, the boot
    flash and the configuration words only on it), sends the file and waits
    for the writer's `writing` ... `run`.
-3. 「リセット (:FF)」 resets the target; the text box sends to the target's
+3. **Reset (:FF)** resets the target; the text box sends to the target's
    UART with LF (`\n`) appended; HEX files are also sent with LF only. A line starting with `:` is refused, since the writer would take it
    for a HEX record.
-4. 「ログ保存」 saves everything received.
+4. **Save** saves everything received.
 
 ## Offline (one file)
 
@@ -126,7 +126,7 @@ cd /srv/writer32mx && ./w32ctl flash img/foo.hex 8 --tx 'hello\r\n' && ./w32ctl 
 `https://<host>/writer32mx/diag/#t=<token>` (same session token) runs
 WebUSB / Web Serial steps sent from the server and reports each result,
 for finding out why a browser cannot connect.  The user taps
-「USB デバイスを選ぶ」 (or 「シリアルを選ぶ」) once, since a permission can
+**Choose USB device** (or **Choose serial port**) once, since a permission can
 only be granted from a tap; everything after that is driven by
 `diagjob`:
 

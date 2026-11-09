@@ -21,6 +21,47 @@ jobs:
         writer32mx-wroom-c20p1305-barcodehid.hex
       output-directory: rel
 
+  samples:
+    uses: paijp/xc32/.github/workflows/build.yml@main
+    with:
+      device: 32MX270F256B
+      makefile: shared
+      working-directory: test
+      targets: pic32-hello.hex
+      output-directory: samples
+      artifact-name: samples
+
+  # The web page on GitHub Pages, with the samples next to it. Needs
+  # Settings > Pages > Source: GitHub Actions.
+  pages:
+    needs: samples
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: samples
+          path: built
+      - name: Assemble the site
+        run: |
+          mkdir -p site/samples
+          cp web/index.html web/app.js web/writer32mx.html site/
+          cp built/pic32-hello.hex site/samples/
+          echo '[{"file":"pic32-hello.hex","title":"pic32-hello (PIC32MX270F256B: count every 1 s, echo, U2 115200)"}]' > site/samples/index.json
+          ls -lR site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
   commit:
     needs: firmware
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

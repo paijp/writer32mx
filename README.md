@@ -1,5 +1,7 @@
 # writer32mx
 
+**▶ [Open the web page](https://paijp.github.io/writer32mx/)** - write a `.hex` (or the sample) through writer32mxcdc from Chrome / Edge. See [web/README.md](web/README.md).
+
 A PIC32MX270F256B-to-PIC32MX270F256B flash programmer via 2-wire Enhanced ICSP.
 Both the writer and the target use PIC32MX270F256B.
 
